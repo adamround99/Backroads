@@ -52,16 +52,11 @@ body{
   border-top:1px solid var(--hair);
   box-shadow:0 -8px 24px rgba(22,25,26,.10);
   padding:0 18px calc(14px + env(safe-area-inset-bottom));
-  max-height:58vh;overflow-y:auto;
-  transform:translateY(0);
-  will-change:transform;
-  touch-action:pan-y;
+  max-height:66vh;overflow-y:auto;
 }
-#sheet.snap{transition:transform .24s cubic-bezier(.32,.72,0,1)}
-#sheet.shut{overflow:hidden}
 
-/* A labelled button, not a drag handle. Dragging fought the panel's own
-   scrolling and lost often enough to feel broken. */
+/* Options replace the results rather than sitting under them, so both views
+   stay short enough to need no scrolling and the map keeps most of the screen. */
 #grip{
   display:flex;align-items:center;justify-content:center;gap:7px;
   width:100%;height:44px;padding:0;border:0;border-radius:0;background:none;
@@ -73,11 +68,25 @@ body{
 #grip svg{
   width:15px;height:15px;fill:none;stroke:currentColor;
   stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;
-  transition:transform .24s ease;
+  transition:transform .22s ease;
 }
-#sheet.shut #grip svg{transform:rotate(180deg)}
+#grip[aria-expanded="true"] svg{transform:rotate(180deg)}
 
-#more{padding-bottom:2px}
+.field{margin-bottom:16px}
+.field label{
+  display:block;font-size:13px;color:var(--slate);margin-bottom:7px;
+}
+.chips{display:flex;align-items:center;gap:6px}
+.chips button{
+  flex:1;padding:12px 4px;font-size:15px;font-weight:500;
+  border:1px solid var(--hair);border-radius:3px;background:var(--panel);color:var(--slate);
+}
+.chips button.on{
+  background:var(--ink);border-color:var(--ink);color:var(--panel);font-weight:600;
+}
+.chips .unit{
+  flex:0 0 auto;font-size:13px;color:var(--slate);padding-left:2px;
+}
 
 /* ---------- readout ---------- */
 .readout{display:flex;align-items:baseline;gap:10px;margin-bottom:2px}
@@ -101,8 +110,8 @@ body{
 
 .stats{
   display:grid;grid-template-columns:repeat(3,1fr);
-  border-bottom:1px solid var(--hair);
-  margin-bottom:4px;
+  border-top:1px solid var(--hair);
+  margin-top:10px;
 }
 .stat{padding:10px 0 12px}
 .stat b{
@@ -171,30 +180,13 @@ button[disabled]{opacity:.45;cursor:default}
 #saved-empty{font-size:13.5px;color:var(--slate);margin:10px 0}
 #go.busy{background:var(--slate);border-color:var(--slate)}
 
-.dial{margin-top:16px}
-.dial-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
-.dial-head label{font-size:14px;color:var(--slate)}
-.dial-head output{
-  font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:600;font-size:18px;
-}
-input[type=range]{width:100%;accent-color:var(--hot);height:26px}
-
-.seg{display:flex;border:1px solid var(--hair);border-radius:3px;overflow:hidden}
-.seg button{flex:1;border:0;border-radius:0;padding:11px 4px;font-size:14.5px;color:var(--slate);background:var(--panel)}
-.seg button+button{border-left:1px solid var(--hair)}
-.seg button.on{background:var(--paper);color:var(--ink);font-weight:600}
-
-details{margin:16px 0 4px;border-top:1px solid var(--hair);padding-top:12px}
+details{margin:4px 0;border-top:1px solid var(--hair);padding-top:12px}
 summary{font-size:14px;color:var(--slate);cursor:pointer;list-style:none}
 summary::-webkit-details-marker{display:none}
 summary::before{content:"+ ";font-weight:600}
 details[open] summary::before{content:"− "}
 details p{font-size:13.5px;color:var(--slate);margin:10px 0}
 details a{color:var(--route)}
-input[type=text]{
-  width:100%;padding:12px;font-family:Barlow,sans-serif;font-size:16px;
-  border:1px solid var(--hair);border-radius:3px;margin-top:9px;background:var(--panel);color:var(--ink);
-}
 
 #msg{font-size:14px;margin-top:11px;color:var(--slate);min-height:20px}
 #msg.bad{color:var(--hot)}
@@ -206,23 +198,68 @@ input[type=text]{
 <div id="map"></div>
 
 <div id="sheet">
-  <button id="grip" type="button" aria-expanded="true" aria-controls="more">
+  <button id="grip" type="button" aria-expanded="false" aria-controls="pane-options">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-    <span id="grip-text">Hide options</span>
+    <span id="grip-text">Options</span>
   </button>
-  <div id="peek">
 
-  <div id="readout" hidden>
-    <div class="readout">
-      <div class="dist" id="km">—<span>mi</span></div>
-      <div class="dur" id="dur"></div>
+  <div id="pane-route">
+    <div id="readout" hidden>
+      <div class="readout">
+        <div class="dist" id="km">—<span>mi</span></div>
+        <div class="dur" id="dur"></div>
+      </div>
+      <div class="approach" id="approach"></div>
     </div>
-    <div class="approach" id="approach"></div>
+
+    <p class="empty-line" id="empty">Find a lap you can drive round and round. Tap the map to start somewhere else.</p>
+
+    <div class="stats" id="stats" hidden>
+      <div class="stat"><b id="s-run">—</b><i>miles best stretch</i></div>
+      <div class="stat"><b id="s-twisty">—</b><i>of it cornering</i></div>
+      <div class="stat"><b id="s-back">—</b><i>doubling back</i></div>
+    </div>
+
+    <div id="routes"></div>
   </div>
 
-  <p class="empty-line" id="empty">Find a lap you can drive round and round. Tap the map to start somewhere else.</p>
+  <div id="pane-options" hidden>
+    <div class="field">
+      <label>Lap length</label>
+      <div class="chips" id="km-chips">
+        <button data-v="10">10</button>
+        <button data-v="15" class="on">15</button>
+        <button data-v="20">20</button>
+        <button data-v="30">30</button>
+        <button data-v="50">50</button>
+        <span class="unit">miles</span>
+      </div>
+    </div>
 
-  <div id="routes"></div>
+    <div class="field">
+      <label>Drive out to the start</label>
+      <div class="chips" id="reach-chips">
+        <button data-v="0">0</button>
+        <button data-v="5">5</button>
+        <button data-v="10" class="on">10</button>
+        <button data-v="20">20</button>
+        <span class="unit">miles</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Corner style</label>
+      <div class="chips" id="style-chips">
+        <button data-v="tight" class="on">Tight and technical</button>
+        <button data-v="flowing">Fast and flowing</button>
+      </div>
+    </div>
+
+    <details id="saved-box">
+      <summary>Saved laps <span id="saved-count"></span></summary>
+      <div id="saved-list"></div>
+    </details>
+  </div>
 
   <div class="row">
     <button id="go">Find a drive</button>
@@ -231,41 +268,8 @@ input[type=text]{
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg>
     </button>
   </div>
-  </div>
-
-  <div id="more">
-  <div class="stats" id="stats" hidden>
-    <div class="stat"><b id="s-run">—</b><i>miles best stretch</i></div>
-    <div class="stat"><b id="s-twisty">—</b><i>of it cornering</i></div>
-    <div class="stat"><b id="s-back">—</b><i>doubling back</i></div>
-  </div>
-
-  <div class="dial">
-    <div class="dial-head"><label for="km-range" id="km-label">Lap length</label><output id="km-out">15 miles</output></div>
-    <input type="range" id="km-range" min="5" max="125" step="1" value="15">
-  </div>
-
-  <div class="dial" id="reach-dial">
-    <div class="dial-head"><label for="reach">Drive out to the start</label><output id="reach-out">up to 12 miles</output></div>
-    <input type="range" id="reach" min="0" max="30" step="1" value="12">
-  </div>
-
-  <div class="dial">
-    <div class="dial-head"><label>Corner style</label></div>
-    <div class="seg" id="style-seg">
-      <button data-style="tight" class="on">Tight and technical</button>
-      <button data-style="flowing">Fast and flowing</button>
-    </div>
-  </div>
 
   <div id="msg"></div>
-
-  <details id="saved-box">
-    <summary>Saved laps <span id="saved-count"></span></summary>
-    <div id="saved-list"></div>
-  </details>
-
-  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -303,6 +307,8 @@ var state = {
   results: [],
   active: -1,
   style: "tight",
+  km: 15,               // miles
+  reach: 10,            // miles
   graph: null,          // road network the laps are built from
   graphKey: "",
   bounds: null          // what the drawn route spans
@@ -638,6 +644,38 @@ function hazardShare(index, pts){
   return hit/samples;
 }
 
+/* Which way you're pointing at each end of a road, measured over the first
+   30m so a wiggle at the junction doesn't skew it. */
+function endBearing(pts, fromStart, ls){
+  var a = fromStart ? pts[0] : pts[pts.length-1];
+  var i = fromStart ? 1 : pts.length-2;
+  var step = fromStart ? 1 : -1;
+  while (i >= 0 && i < pts.length){
+    var dx = (pts[i][0]-a[0])*ls, dy = (pts[i][1]-a[1])*110540;
+    if (dx*dx + dy*dy > 900) return (Math.atan2(dx, dy)*180/Math.PI + 360) % 360;
+    i += step;
+  }
+  var far = fromStart ? pts[pts.length-1] : pts[0];
+  return (Math.atan2((far[0]-a[0])*ls, (far[1]-a[1])*110540)*180/Math.PI + 360) % 360;
+}
+
+/* Direction of travel when setting off from one end of a road. */
+function leaving(e, node){ return e.from === node ? e.b0 : e.b1; }
+
+function turnFrom(inbound, outbound){
+  // 0 = carry straight on, 180 = back the way you came
+  return Math.abs(((outbound - inbound + 540) % 360) - 180);
+}
+
+/* At a Y, one branch is the road carrying on and the other is a turning off
+   it. Nothing in the map says which, so it's inferred: the branch you barely
+   have to steer for, and the one still carrying the same name. */
+function continuity(turn, sameName){
+  var c = Math.pow(Math.cos(turn * Math.PI/360), 3);
+  if (!(c > 0.15)) c = 0.15;
+  return c * (sameName ? 1.7 : 1);
+}
+
 function nodeKey(p){ return p[0].toFixed(5) + ":" + p[1].toFixed(5); }
 
 function metresBetween(a, b, latScale){
@@ -687,7 +725,10 @@ function buildGraph(ways, latScale, schools, cameras){
         sev = st.radii.length ? sev/st.radii.length : 0;
         var q = roadQuality(tags, hazardShare(schools, pts), hazardShare(cameras, pts));
         edges.push({from:a, to:b, pts:pts, metres:prep.metres, fun:sev, quality:q,
-                    oneway:(one||rev), cls:tags.highway || "unclassified"});
+                    oneway:(one||rev), cls:tags.highway || "unclassified",
+                    name: tags.name || tags.ref || "",
+                    b0: endBearing(pts, true, latScale),
+                    b1: endBearing(pts, false, latScale)});
         adj[a].push(edges.length-1);
         adj[b].push(edges.length-1);
       }
@@ -795,8 +836,11 @@ function mergeChains(graph, maxM){
       fun: (a.fun*a.metres + b.fun*b.metres)/m,
       quality: (a.quality*a.metres + b.quality*b.metres)/m,
       oneway: a.oneway,
-      cls: a.metres >= b.metres ? a.cls : b.cls
+      cls: a.metres >= b.metres ? a.cls : b.cls,
+      name: a.metres >= b.metres ? a.name : b.name
     };
+    merged.b0 = endBearing(merged.pts, true, graph.latScale);
+    merged.b1 = endBearing(merged.pts, false, graph.latScale);
 
     alive[i1] = false; alive[i2] = false;
     drop(a.from, i1); drop(a.to, i1);
@@ -940,43 +984,74 @@ Heap.prototype.pop = function(){
   return top;
 };
 
-/* The way back. Cheapest route home, but cheap means good road rather than
-   short road, and road already driven costs triple — so it prefers new
-   tarmac and only repeats itself when there's no reasonable alternative. */
+/* The way back. Cheapest route home, where cheap means good road rather than
+   short road, road already driven costs triple, and swinging off onto a side
+   turning costs more than carrying straight on.
+
+   That last part is why this searches over roads rather than junctions: the
+   cost of a road depends on which road you arrived by, so the state has to
+   remember how you got there. */
 function wayBack(graph, from, to, used){
   if (from === to) return [];
-  var dist = {}, prev = {}, done = {}, heap = new Heap();
-  dist[from] = 0; heap.push(0, from);
 
+  var dist = {}, prev = {}, done = {}, heap = new Heap(), i;
+
+  // Reuse has to cost more than the worst turn penalty (about 6.7x), or the
+  // way home would rather retrace a mile of road than take a sharp left.
+  function cost(e, ei, turn, sameRoad){
+    var c = e.metres * (used[ei] ? 9 : 1) / (0.15 + e.fun * e.quality);
+    return turn === null ? c : c / continuity(turn, sameRoad);
+  }
+
+  var first = graph.adj[from] || [];
+  for (i=0;i<first.length;i++){
+    var e0 = graph.edges[first[i]];
+    if (e0.oneway && e0.from !== from) continue;
+    var at0 = e0.from === from ? e0.to : e0.from;
+    var k0 = first[i] + "|" + at0;
+    var c0 = cost(e0, first[i], null, false);
+    if (dist[k0] === undefined || c0 < dist[k0]){
+      dist[k0] = c0; prev[k0] = null; heap.push(c0, k0);
+    }
+  }
+
+  var goal = null;
   while (heap.a.length){
-    var top = heap.pop(), d = top[0], node = top[1];
-    if (done[node]) continue;
-    done[node] = 1;
-    if (node === to) break;
+    var top = heap.pop(), d = top[0], key = top[1];
+    if (done[key]) continue;
+    done[key] = 1;
 
-    var opts = graph.adj[node] || [];
-    for (var i=0;i<opts.length;i++){
-      var ei = opts[i], e = graph.edges[ei];
-      if (e.oneway && e.from !== node) continue;
-      var other = e.from === node ? e.to : e.from;
-      var cost = e.metres * (used[ei] ? 3 : 1) / (0.15 + e.fun * e.quality);
-      var nd = d + cost;
-      if (dist[other] === undefined || nd < dist[other]){
-        dist[other] = nd;
-        prev[other] = {ei:ei, from:node};
-        heap.push(nd, other);
+    var bar = key.indexOf("|");
+    var ei = +key.slice(0, bar), at = key.slice(bar+1);
+    if (at === to){ goal = key; break; }
+
+    var here = graph.edges[ei];
+    var inbound = (leaving(here, at) + 180) % 360;
+    var opts = graph.adj[at] || [];
+
+    for (i=0;i<opts.length;i++){
+      var ni = opts[i];
+      if (ni === ei) continue;                       // no turning round on the spot
+      var e = graph.edges[ni];
+      if (e.oneway && e.from !== at) continue;
+      var other = e.from === at ? e.to : e.from;
+      var k = ni + "|" + other;
+      if (done[k]) continue;
+      var nd = d + cost(e, ni, turnFrom(inbound, leaving(e, at)), !!here.name && e.name === here.name);
+      if (dist[k] === undefined || nd < dist[k]){
+        dist[k] = nd; prev[k] = key; heap.push(nd, k);
       }
     }
   }
 
-  if (prev[to] === undefined) return null;
-  var path = [], n = to;
-  while (n !== from){
-    var step = prev[n];
-    if (!step) return null;
-    var edge = graph.edges[step.ei];
-    path.unshift({ei:step.ei, e:edge, forward: edge.from === step.from});
-    n = step.from;
+  if (!goal) return null;
+
+  var path = [], step = goal;
+  while (step !== null && step !== undefined){
+    var b = step.indexOf("|");
+    var edge = graph.edges[+step.slice(0, b)], arrivedAt = step.slice(b+1);
+    path.unshift({ei: +step.slice(0, b), e: edge, forward: edge.to === arrivedAt});
+    step = prev[step];
   }
   return path;
 }
@@ -989,6 +1064,8 @@ function walkCircuit(graph, startKey, targetM, seed){
   var node = startKey, used = {}, path = [], total = 0;
   var home = graph.nodes[startKey], ls = graph.latScale;
   var cap = Math.max(150, Math.min(5000, Math.round(targetM/100)));
+
+  var inbound = null, road = "";
 
   for (var step=0; step<cap; step++){
     // Keep going out until getting home would finish the lap. Stopping at a
@@ -1012,6 +1089,11 @@ function walkCircuit(graph, startKey, targetM, seed){
     var sum = 0;
     for (i=0;i<cands.length;i++){
       var w = Math.pow(0.04 + cands[i].e.fun, 2.4) * cands[i].e.quality;
+      if (inbound !== null){
+        var out = leaving(cands[i].e, node);
+        var sameName = !!road && cands[i].e.name === road;
+        w *= continuity(turnFrom(inbound, out), sameName);
+      }
       if (leash){
         var there = metresBetween(graph.nodes[cands[i].other], home, ls);
         w *= there < here ? 3 : 0.35;
@@ -1025,6 +1107,8 @@ function walkCircuit(graph, startKey, targetM, seed){
     used[chosen.ei] = 1;
     path.push({ei:chosen.ei, e:chosen.e, forward: chosen.e.from === node});
     total += chosen.e.metres;
+    inbound = (leaving(chosen.e, chosen.other) + 180) % 360;   // how you arrive
+    road = chosen.e.name;
     node = chosen.other;
   }
 
@@ -1117,7 +1201,7 @@ function present(found, note){
 
 function searchCircuit(km){
   var targetM = km*1000;
-  var reachM = (+document.getElementById("reach").value) / MI * 1000;
+  var reachM = state.reach / MI * 1000;
   var radius = Math.min(34000, targetM/(2*Math.PI) * 1.5 + reachM);
 
   return ensureGraph(state.start, radius).then(function(graph){
@@ -1144,7 +1228,7 @@ function searchCircuit(km){
 function search(){
   if (!state.start){ say("Waiting for your location. Tap the map to pick a start instead.", true); return; }
   begin();
-  searchCircuit(+document.getElementById("km-range").value / MI)
+  searchCircuit(state.km / MI)
     .catch(function(err){ say(err.message, true); })
     .then(finish);
 }
@@ -1222,7 +1306,7 @@ function show(i){
   document.getElementById("s-back").textContent = Math.round(Math.min(1, r.lap*2)*100) + "%";
   document.getElementById("nav").disabled = false;
   syncStar();
-  if (!sheet.shut) openSheet(false);
+  if (optionsOpen) showOptions(false);
 }
 
 /* ---------- saved laps ---------- */
@@ -1438,47 +1522,24 @@ function navigate(){
 
 /* ---------- the sheet ---------- */
 
-/* The grip implied the panel could be dragged, so now it can. Collapsed shows
-   the route and the buttons; expanded shows the controls. The map sits behind
-   the whole thing and gets told to re-measure whenever that changes, which
-   Leaflet will not work out for itself. */
-var sheet = {shut:true, y:0, drop:0};
+/* Two views in one panel: the route, or the options. They swap rather than
+   stack, so the options are always one tap away even with a route on screen,
+   and neither view is tall enough to need scrolling. */
+var optionsOpen = false;
 
-function sheetMetrics(){
-  var el = document.getElementById("sheet");
-  var peek = document.getElementById("peek");
-  var more = document.getElementById("more");
+function showOptions(on){
+  optionsOpen = on;
+  document.getElementById("pane-route").hidden = on;
+  document.getElementById("pane-options").hidden = !on;
   var grip = document.getElementById("grip");
-  var prev = el.style.transform;
-  el.style.transform = "translateY(0)";           // measure it open
-  var full = el.offsetHeight, peekH = peek.offsetHeight + grip.offsetHeight;
-  el.style.transform = prev;
-  sheet.drop = Math.max(0, Math.min(more.offsetHeight, full - peekH));
-  return peekH;
+  grip.setAttribute("aria-expanded", on ? "true" : "false");
+  document.getElementById("grip-text").textContent = on ? "Done" : "Options";
+  setTimeout(function(){ if (map) map.invalidateSize(); reframe(); }, 30);
 }
 
-function setSheet(y, animate){
-  var el = document.getElementById("sheet");
-  el.classList.toggle("snap", !!animate);
-  sheet.y = y;
-  el.style.transform = "translateY(" + y + "px)";
-  el.classList.toggle("shut", y > sheet.drop/2);
-}
-
-function openSheet(open){
-  sheetMetrics();
-  sheet.shut = !open;
-  setSheet(open ? 0 : sheet.drop, true);
-  setTimeout(reframe, 260);                        // after the panel has settled
-  var grip = document.getElementById("grip");
-  grip.setAttribute("aria-expanded", open ? "true" : "false");
-  document.getElementById("grip-text").textContent = open ? "Hide options" : "Options";
-}
-
-/* How much of the screen the panel is covering right now, open or shut. */
+/* How much of the screen the panel is covering. */
 function sheetCover(){
-  var el = document.getElementById("sheet");
-  return Math.max(0, el.offsetHeight - sheet.y);
+  return document.getElementById("sheet").offsetHeight;
 }
 
 function frameRoute(bounds){
@@ -1490,31 +1551,40 @@ function frameRoute(bounds){
   });
 }
 
-/* Whenever the panel moves, put the route back inside the map that's left.
-   Otherwise opening the options hides the thing you're looking at. */
+/* Whenever the panel changes height, put the route back inside the map that's
+   left. Otherwise opening the options hides the thing you're looking at. */
 function reframe(){
   if (state.bounds) frameRoute(state.bounds);
 }
 
 function wireSheet(){
-  var grip = document.getElementById("grip");
-
-  grip.addEventListener("click", function(){ openSheet(sheet.shut); });
+  document.getElementById("grip").addEventListener("click", function(){
+    showOptions(!optionsOpen);
+  });
 
   var settle;
   function relayout(){
     clearTimeout(settle);
     settle = setTimeout(function(){
-      sheetMetrics();
-      setSheet(sheet.shut ? sheet.drop : 0, false);
       if (map){ map.invalidateSize(); reframe(); }
     }, 120);
   }
   window.addEventListener("resize", relayout);
   window.addEventListener("orientationchange", relayout);
+}
 
-  // Reaching for the map is a clear signal you want the map.
-  if (map) map.on("movestart", function(){ if (!sheet.shut) openSheet(false); });
+/* Pick one value from a row of buttons. */
+function wireChips(id, initial, onPick){
+  var box = document.getElementById(id);
+  box.addEventListener("click", function(e){
+    var b = e.target.closest("button");
+    if (!b) return;
+    Array.prototype.forEach.call(box.querySelectorAll("button"), function(c){
+      c.className = c === b ? "on" : "";
+    });
+    onPick(b.dataset.v);
+  });
+  return initial;
 }
 
 /* ---------- start ---------- */
@@ -1543,21 +1613,10 @@ function init(){
     say("Start moved. Search again from here.");
   });
 
-  var kmRange = document.getElementById("km-range");
-  kmRange.addEventListener("input", function(){
-    document.getElementById("km-out").textContent = kmRange.value + (kmRange.value === "1" ? " mile" : " miles");
-  });
-  var reach = document.getElementById("reach");
-  reach.addEventListener("input", function(){
-    document.getElementById("reach-out").textContent =
-      reach.value === "0" ? "start where I am" : "up to " + reach.value + " miles";
-  });
-
-  document.getElementById("style-seg").addEventListener("click", function(e){
-    var b = e.target.closest("button");
-    if (!b) return;
-    state.style = b.dataset.style;
-    Array.prototype.forEach.call(this.children, function(c){ c.className = c === b ? "on" : ""; });
+  wireChips("km-chips", 0, function(v){ state.km = +v; });
+  wireChips("reach-chips", 0, function(v){ state.reach = +v; });
+  wireChips("style-chips", 0, function(v){
+    state.style = v;
     if (state.results.length) say("Corner style changed. Search again to pick roads to suit.");
   });
 
@@ -1574,7 +1633,8 @@ function init(){
 
   renderSaved();
   wireSheet();
-  setTimeout(function(){ openSheet(false); map.invalidateSize(); }, 80);
+  showOptions(false);
+  setTimeout(function(){ map.invalidateSize(); }, 80);
 
   if (navigator.geolocation){
     say("Finding you…");
