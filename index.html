@@ -202,7 +202,10 @@ input[type=text]{
     <input type="text" id="key" placeholder="GraphHopper API key" autocomplete="off" spellcheck="false">
     <p>Tap anywhere on the map to start the loop somewhere other than your current position.
        Road measurements are reused while you stay in one area, so only the first
-       search of the day is slow. Each candidate costs one routing credit.</p>
+       search there is slow.</p>
+    <p>The free routing plan allows 500 credits a day. A loop is routed in legs
+       of five stops, so most candidates cost two credits — roughly 40 searches
+       a day at the default settings.</p>
     <div class="dial">
       <div class="dial-head"><label for="seeds">Candidates per search</label><output id="seeds-out">6</output></div>
       <input type="range" id="seeds" min="3" max="14" step="1" value="6">
@@ -244,6 +247,7 @@ var state = {
   style: "tight",
   roads: null,          // measured roads around the current ring
   roadsKey: "",
+  credits: null,        // read back from the routing response when offered
   caps: {elevation:true, details:true}   // trimmed if the routing plan refuses them
 };
 
@@ -513,9 +517,40 @@ function pickWaypoints(roads, start, k, variant, style){
 
 /* ---------- routing ---------- */
 
-/* Plain multi-point routing — the kind every plan allows. Elevation and road
-   type are asked for first and dropped if the plan says no. */
-function routeThrough(key, points){
+/* The free plan allows 5 locations per request, so a loop with more stops
+   than that is driven in legs and stitched back together. Each leg costs
+   one credit out of the daily 500. */
+var MAX_POINTS = 5;
+
+function legsOf(points){
+  var legs = [], i = 0;
+  while (i < points.length - 1){
+    legs.push(points.slice(i, Math.min(i + MAX_POINTS, points.length)));
+    i += MAX_POINTS - 1;
+  }
+  return legs;
+}
+
+/* Join the legs into one path. The last point of each leg is the first of
+   the next, so it is dropped, and the road-type ranges are shifted to match
+   their new positions in the combined line. */
+function joinLegs(paths){
+  var coords = [], distance = 0, time = 0, road = [];
+  for (var i=0;i<paths.length;i++){
+    var c = paths[i].points.coordinates;
+    var offset = i === 0 ? 0 : coords.length - 1;
+    for (var n = (i === 0 ? 0 : 1); n<c.length; n++) coords.push(c[n]);
+    distance += paths[i].distance;
+    time += paths[i].time;
+    var d = paths[i].details && paths[i].details.road_class;
+    if (d) for (var k=0;k<d.length;k++) road.push([d[k][0]+offset, d[k][1]+offset, d[k][2]]);
+  }
+  return {points:{coordinates:coords}, distance:distance, time:time, details:{road_class:road}};
+}
+
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+function requestLeg(key, points){
   var body = {profile:"car", points:points, points_encoded:false, instructions:false};
   if (state.caps.elevation) body.elevation = true;
   if (state.caps.details) body.details = ["road_class"];
@@ -525,16 +560,36 @@ function routeThrough(key, points){
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify(body)
   }).then(function(r){
+    var left = r.headers.get("X-RateLimit-Remaining");
+    if (left !== null) state.credits = +left;
+    if (r.status === 429)
+      throw new Error("GraphHopper credit limit reached. The free plan allows 500 a day and only a few per minute — wait a minute, or lower the candidate count under Setup.");
     return r.json().then(function(j){
-      if (r.ok) return j;
+      if (r.ok) return j.paths && j.paths[0];
       var msg = j.message || ("Routing failed: " + r.status);
-      if (r.status === 400 && (state.caps.details || state.caps.elevation)){
+      // Elevation and road types are optional; drop them and retry if refused.
+      if (r.status === 400 && /elevation|details|not supported|not allowed/i.test(msg)
+          && (state.caps.details || state.caps.elevation)){
         if (state.caps.details) state.caps.details = false;
         else state.caps.elevation = false;
-        return routeThrough(key, points);           // try again, plainer
+        return requestLeg(key, points);
       }
       throw new Error(msg);
     });
+  });
+}
+
+function routeThrough(key, points){
+  var legs = legsOf(points), out = [];
+  var chain = Promise.resolve();
+  legs.forEach(function(leg, i){
+    chain = chain.then(function(){ return i ? wait(250) : null; })   // stay under the rate limit
+                 .then(function(){ return requestLeg(key, leg); })
+                 .then(function(p){ if (p) out.push(p); });
+  });
+  return chain.then(function(){
+    if (out.length !== legs.length) throw new Error("One leg of the loop could not be routed.");
+    return joinLegs(out);
   });
 }
 
@@ -572,9 +627,7 @@ function search(){
       pts.push([state.start.lng, state.start.lat]);
 
       return routeThrough(key, pts)
-        .then(function(json){
-          if (json.paths && json.paths.length) found.push(score(json.paths[0], style));
-        })
+        .then(function(path){ if (path) found.push(score(path, style)); })
         .catch(function(err){ lastError = err; })
         .then(function(){
           done++;
@@ -596,7 +649,8 @@ function search(){
       state.results = found.slice(0,5);
       renderTabs();
       show(0);
-      say(roads.length + " roads measured, best " + state.results.length + " loops kept.");
+      say(roads.length + " roads measured, best " + state.results.length + " loops kept."
+          + (state.credits !== null ? "  " + state.credits + " credits left today." : ""));
     });
   }).catch(function(err){
     say(err.message, true);
