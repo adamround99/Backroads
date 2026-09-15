@@ -141,7 +141,9 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
   font-family:"Barlow Condensed",Barlow,sans-serif;
   font-weight:500;font-size:26px;color:var(--muted);
 }
-.empty-line{color:var(--muted);font-size:15px;margin:2px 0 4px}
+/* This is the landing screen now, not a placeholder, so it reads as a
+   statement of what's about to happen. */
+.empty-line{color:var(--muted);font-size:16px;line-height:1.5;margin:6px 0 2px}
 .approach{
   display:inline-block;margin-top:9px;padding:4px 11px;
   border-radius:var(--pill);background:color-mix(in srgb, var(--accent) 14%, transparent);
@@ -189,7 +191,12 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
    do having set the options; Navigate and save are things you do to a lap you
    already have. Offering both at once made "Find a drive" read as though it
    might replace the lap you were looking at. */
-#sheet.on-route #go{display:none}
+/* Find a drive is the whole point until there's a lap on screen, so it stays
+   the one big button. Once a lap exists, the Route tab is about that lap and
+   the search moves to Options where changing your mind belongs. */
+#sheet.on-route.has-route #go{display:none}
+#sheet.on-route:not(.has-route) #nav,
+#sheet.on-route:not(.has-route) #star{display:none}
 #sheet.on-options #nav,
 #sheet.on-options #star{display:none}
 
@@ -257,7 +264,7 @@ details[open] summary::before{content:"\2212 "}
 .calib{
   display:flex;align-items:center;gap:8px;flex-wrap:wrap;
   background:var(--raised);border:1px solid var(--line);
-  border-radius:var(--r);padding:11px 12px;margin-bottom:10px;
+  border-radius:var(--r);padding:11px 12px;margin:14px 0 0;
 }
 .calib span{flex:1 1 140px;font-size:14px;font-weight:600;color:var(--ink)}
 .calib button{
@@ -327,15 +334,15 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 
 <div id="map"></div>
 
-<div id="sheet" class="on-options">
+<div id="sheet" class="on-route">
   <div id="switch" role="tablist" aria-label="Panel view">
-    <button id="tab-route" type="button" role="tab" aria-selected="false"
-            aria-controls="pane-route">Route</button>
-    <button id="tab-options" type="button" role="tab" aria-selected="true"
-            aria-controls="pane-options" class="on">Options</button>
+    <button id="tab-route" type="button" role="tab" aria-selected="true"
+            aria-controls="pane-route" class="on">Route</button>
+    <button id="tab-options" type="button" role="tab" aria-selected="false"
+            aria-controls="pane-options">Options</button>
   </div>
 
-  <div id="pane-route" role="tabpanel" aria-labelledby="tab-route" hidden>
+  <div id="pane-route" role="tabpanel" aria-labelledby="tab-route">
     <div id="readout" hidden>
       <div class="readout">
         <div class="dist" id="km">—<span>mi</span></div>
@@ -356,7 +363,7 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
     <div id="routes"></div>
   </div>
 
-  <div id="pane-options" role="tabpanel" aria-labelledby="tab-options">
+  <div id="pane-options" role="tabpanel" aria-labelledby="tab-options" hidden>
     <div class="field">
       <label>How long you want to be out</label>
       <div class="chips" id="mins-chips">
@@ -395,15 +402,17 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 
   </div>
 
+  <div id="calib-slot"></div>
+
   <div class="row">
-    <button id="go">Find a drive</button>
+    <button id="go">Find me a drive</button>
     <button id="nav" disabled>Navigate</button>
     <button id="star" disabled aria-label="Save this lap" aria-pressed="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg>
     </button>
   </div>
 
-  <details id="saved-box">
+  <details id="saved-box" hidden>
     <summary>Saved laps <span id="saved-count"></span></summary>
     <div id="saved-list"></div>
   </details>
@@ -1503,49 +1512,104 @@ function nearestNode(graph, lng, lat){
   return best;
 }
 
-function findCircuits(graph, start, targetS, reachM, tries){
+/* The search as a set of jobs rather than a loop, so it can be run straight
+   through (tests, fallback) or a slice at a time across frames. Same work
+   either way — only who decides when to stop. */
+function makeSearch(graph, start, targetS, reachM, tries){
   var picked = pickStarts(graph, start.lng, start.lat, reachM, 8);
   var diag = {parts: picked.parts, biggest: picked.biggest,
               starts: picked.starts.length, stuck:0, noway:0, closed:0};
-  if (!picked.starts.length) return {found:[], diag:diag};
 
   var on = [], off = [], seen = {}, s, t;
-  var each = Math.max(12, Math.round(tries/picked.starts.length));
+  var each = Math.max(12, Math.round(tries/picked.starts.length || 1));
   /* The walk reasons in raw model seconds, so the target it chases has to be
      un-corrected first; the comparison afterwards uses corrected time. */
   var walkTarget = targetS / paceFactor();
 
-  for (s=0;s<picked.starts.length;s++){
-    var from = picked.starts[s];
-    // Road left between this start and the edge of what we downloaded.
-    var room = graph.radius
-      ? Math.max(1200, (graph.radius - (from.away || 0)) * 0.9)
-      : Infinity;
-    for (t=0;t<each;t++){
-      var c = walkCircuit(graph, from.key, walkTarget, s*1000 + t + 1, room);
-      if (!c) continue;
-      if (c.fail){ diag[c.fail]++; continue; }
-      diag.closed++;
-
-      var ids = c.path.map(function(l){ return l.ei; }).sort(function(a,b){ return a-b; }).join(",");
-      if (seen[ids]) continue;
-      seen[ids] = 1;
-
-      var path = circuitToPath(c);
-      var secs = (path.time/1000) * paceFactor();
-      var r = score(path);
-      r.approach = from.away;
-      /* Being over the time asked for is worse than being under it — an hour
-         means an hour, and a lap that quietly runs to ninety minutes is a
-         broken promise rather than a bonus. */
-      var off_ = (secs - targetS)/targetS;
-      r.total -= (off_ > 0 ? off_*7 : -off_*4);
-      r.total -= (from.away/1000) * 0.25;                      // shorter drive out
-      if (secs >= targetS*0.75 && secs <= targetS*1.25) on.push(r); else off.push(r);
+  /* Round-robin across start points rather than exhausting each in turn, so
+     the first laps to appear come from different parts of the map instead of
+     all clustering round whichever junction happened to be first. */
+  var jobs = [];
+  for (t=0;t<each;t++){
+    for (s=0;s<picked.starts.length;s++){
+      var from = picked.starts[s];
+      jobs.push({
+        from: from,
+        seed: s*1000 + t + 1,
+        // Road left between this start and the edge of what we downloaded.
+        room: graph.radius ? Math.max(1200, (graph.radius - (from.away || 0)) * 0.9)
+                           : Infinity
+      });
     }
   }
 
-  return {found: on.length ? on : off, diag: diag, loose: !on.length && off.length > 0};
+  function step(job){
+    var c = walkCircuit(graph, job.from.key, walkTarget, job.seed, job.room);
+    if (!c) return;
+    if (c.fail){ diag[c.fail]++; return; }
+    diag.closed++;
+
+    var ids = c.path.map(function(l){ return l.ei; }).sort(function(a,b){ return a-b; }).join(",");
+    if (seen[ids]) return;
+    seen[ids] = 1;
+
+    var path = circuitToPath(c);
+    var secs = (path.time/1000) * paceFactor();
+    var r = score(path);
+    r.approach = job.from.away;
+    /* Being over the time asked for is worse than being under it — an hour
+       means an hour, and a lap that quietly runs to ninety minutes is a
+       broken promise rather than a bonus. */
+    var off_ = (secs - targetS)/targetS;
+    r.total -= (off_ > 0 ? off_*7 : -off_*4);
+    r.total -= (job.from.away/1000) * 0.25;                  // shorter drive out
+    if (secs >= targetS*0.75 && secs <= targetS*1.25) on.push(r); else off.push(r);
+  }
+
+  function best(){
+    var pool = on.length ? on : off, b = null;
+    for (var i=0;i<pool.length;i++) if (!b || pool[i].total > b.total) b = pool[i];
+    return b;
+  }
+
+  function result(){
+    return {found: on.length ? on : off, diag: diag,
+            loose: !on.length && off.length > 0};
+  }
+
+  return {jobs: picked.starts.length ? jobs : [], step: step, best: best,
+          result: result, count: function(){ return on.length + off.length; }};
+}
+
+function findCircuits(graph, start, targetS, reachM, tries){
+  var S = makeSearch(graph, start, targetS, reachM, tries);
+  for (var i=0;i<S.jobs.length;i++) S.step(S.jobs[i]);
+  return S.result();
+}
+
+/* The same search, run in slices between frames. Two things follow: the map
+   stays draggable while it thinks, and a lap appears within a second or so
+   and improves as better ones turn up — so the wait becomes something to
+   watch rather than a frozen screen. */
+function findCircuitsLive(graph, start, targetS, reachM, tries, onBest, onTick){
+  var S = makeSearch(graph, start, targetS, reachM, tries);
+  var i = 0, shown = null;
+  var SLICE = 20;                      // ms of work per frame; leaves room to paint
+
+  return new Promise(function(resolve){
+    function chunk(){
+      var t0 = Date.now();
+      while (i < S.jobs.length && Date.now() - t0 < SLICE) S.step(S.jobs[i++]);
+
+      var b = S.best();
+      if (b && b !== shown){ shown = b; onBest(b); }
+      if (onTick) onTick(i, S.jobs.length, S.count());
+
+      if (i < S.jobs.length) requestAnimationFrame(chunk);
+      else resolve(S.result());
+    }
+    requestAnimationFrame(chunk);
+  });
 }
 
 function begin(){
@@ -1556,7 +1620,7 @@ function begin(){
 
 function finish(){
   var btn = document.getElementById("go");
-  btn.disabled = false; btn.className = ""; btn.textContent = "Find a drive";
+  btn.disabled = false; btn.className = ""; btn.textContent = "Find me a drive";
 }
 
 function present(found, note){
@@ -1588,9 +1652,29 @@ function searchCircuit(mins){
     if (graph.edges.length < 30)
       throw new Error("Not enough connected road around here to build a lap. Try starting somewhere less built up.");
     say("Looking for a lap…");
-    var tSearch = Date.now();
-    var r = findCircuits(graph, state.start, targetS, reachM, 200);
-    tSearch = Date.now() - tSearch;
+    var tSearch = Date.now(), seenBest = 0, lastCount = -1;
+
+    return findCircuitsLive(graph, state.start, targetS, reachM, 200,
+      function(best){
+        // Draw the leader as soon as there is one, then quietly replace it.
+        state.results = [best];
+        renderTabs();
+        show(0, seenBest++ > 0);
+      },
+      function(done, total, found){
+        if (found === lastCount) return;        // only speak when something changed
+        lastCount = found;
+        say(found ? ("Looking… " + found + (found === 1 ? " lap" : " laps") + " so far")
+                  : "Looking for a lap…");
+      }
+    ).then(function(r){
+      tSearch = Date.now() - tSearch;
+      return finishSearch(r, graph, tFetch, tSearch, radius);
+    });
+  });
+}
+
+function finishSearch(r, graph, tFetch, tSearch, radius){
     var d = r.diag;
 
     /* Where the wait went. Only surfaced when it was actually a wait, but
@@ -1613,7 +1697,6 @@ function searchCircuit(mins){
       : total >= 5 ? ("Took " + total + "s — " + Math.round(tFetch/1000)
                       + "s reading the map, " + Math.round(tSearch/1000) + "s searching it.")
       : "");
-  });
 }
 
 function search(){
@@ -1640,6 +1723,7 @@ function say(text, bad){
 
 function clearRoutes(){
   state.results = []; state.active = -1;
+  markHasRoute(); renderPlan();
   window.dispatchEvent(new Event("backroads:route"));
   document.getElementById("routes").innerHTML = "";
   if (routeLine){ map.removeLayer(routeLine); routeLine = null; }
@@ -1699,6 +1783,62 @@ function roadsLine(r){
 /* Place and road names come from OpenStreetMap, which anyone can edit, so they
    are never treated as markup. Built as text nodes rather than a string of
    HTML — there is no parse step for a crafted name to exploit. */
+/* OpenStreetMap names are editable by anyone, so they are never trusted as
+   markup anywhere they reach the page. */
+function escapeText(t){
+  return String(t == null ? "" : t)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/* The empty Route tab is now the first thing you see, so it states the plan in
+   words rather than making you read three sets of chips to work it out. */
+/* Put last session's settings back, into the chips as well as the state, so
+   the options screen agrees with what the app is about to do. */
+function applyPrefs(){
+  var p = loadPrefs();
+  if (!p) return;
+  if (p.mins) state.mins = p.mins;
+  if (typeof p.reach === "number") state.reach = p.reach;
+  if (p.style) state.style = p.style;
+
+  function mark(id, value){
+    var box = document.getElementById(id);
+    if (!box) return;
+    Array.prototype.forEach.call(box.querySelectorAll("button"), function(b){
+      b.className = (b.getAttribute("data-v") === String(value)) ? "on" : "";
+    });
+  }
+  mark("mins-chips", state.mins);
+  mark("reach-chips", state.reach);
+  mark("style-chips", state.style);
+}
+
+/* "1h" is right on a result card next to a number. On the landing screen it's
+   a sentence, and sentences say "an hour". */
+function spoken(mins){
+  var words = {30:"half an hour", 45:"three quarters of an hour", 60:"an hour",
+               90:"an hour and a half", 120:"two hours"};
+  if (words[mins]) return words[mins];
+  if (mins < 60) return mins + " minutes";
+  var h = Math.floor(mins/60), m = mins % 60;
+  return h + (h === 1 ? " hour" : " hours") + (m ? " " + m : "");
+}
+
+function renderPlan(){
+  var el = document.getElementById("empty");
+  if (!el || state.results.length) return;
+  var reach = state.reach > 0
+    ? "starting within " + state.reach + " miles"
+    : "starting from here";
+  el.textContent = "About " + spoken(state.mins) + " of driving, " + reach +
+                   ". Tap Options to change.";
+}
+
+function markHasRoute(){
+  document.getElementById("sheet").classList.toggle("has-route", state.results.length > 0);
+}
+
 function renderVia(r){
   var el = document.getElementById("via");
   var via = describe(r), roads = roadsLine(r);
@@ -1718,7 +1858,7 @@ function renderVia(r){
   }
 }
 
-function show(i){
+function show(i, keepView){
   var r = state.results[i];
   if (!r) return;
   state.active = i;
@@ -1738,7 +1878,10 @@ function show(i){
                                    lineCap:"round", lineJoin:"round"}).addTo(map);
   routeLine = L.polyline(latlngs, {color:routeColour, weight:6, opacity:1,
                                    lineCap:"round", lineJoin:"round"}).addTo(map);
-  frameRoute(routeLine.getBounds());
+  state.bounds = routeLine.getBounds();
+  /* While the search is still running the map holds still — refitting on every
+     improvement would throw the view around several times a second. */
+  if (!keepView) frameRoute(state.bounds);
 
   document.getElementById("empty").hidden = true;
   document.getElementById("readout").hidden = false;
@@ -1749,20 +1892,24 @@ function show(i){
     away > 0.6 ? "Lap starts " + away.toFixed(away < 10 ? 1 : 0) + " miles away" : "";
 
   /* Name the places on the map, not just in the panel — the point is to
-     recognise where you're going before you commit to driving there. */
+     recognise where you're going before you commit to driving there.
+     describe() must run before this, not after: it's what works the list out,
+     and reading it first left every lap unlabelled until its second viewing. */
+  describe(r);
   for (var pm=0; pm<placeMarks.length; pm++) map.removeLayer(placeMarks[pm]);
   placeMarks = [];
   (r.viaPlaces || []).forEach(function(p){
+    /* The name is escaped into the icon's markup rather than written in
+       afterwards: nothing then depends on the icon element existing at this
+       moment, and an OSM name containing markup is still inert. */
     placeMarks.push(L.marker([p.lat, p.lon], {
       interactive: false,
       icon: L.divIcon({
         className: "",
-        html: '<div class="place"><i></i><span></span></div>',
+        html: '<div class="place"><i></i><span>' + escapeText(p.name) + '</span></div>',
         iconSize: [0,0], iconAnchor: [0,0]
       })
     }).addTo(map));
-    var el = placeMarks[placeMarks.length-1].getElement();
-    if (el) el.querySelector("span").textContent = p.name;   // textContent, so odd names can't inject markup
   });
 
   if (lapMarker){ map.removeLayer(lapMarker); lapMarker = null; }
@@ -1777,6 +1924,7 @@ function show(i){
   document.getElementById("s-twisty").textContent = Math.round(r.twisty*100) + "%";
   document.getElementById("s-back").textContent = Math.round(Math.min(1, r.lap*2)*100) + "%";
   document.getElementById("nav").disabled = false;
+  markHasRoute();
   renderVia(r);
   syncStar();
   if (optionsOpen) showOptions(false);
@@ -1786,6 +1934,22 @@ function show(i){
 
 var STORE = "backroad.laps";
 var PACE_STORE = "backroads.pace";
+var PREF_STORE = "backroads.prefs";
+
+/* What you last asked for. Restored on open so the app can lead with a button
+   rather than a form — the settings are still one tap away, they just stop
+   being a toll gate on the way to a drive. */
+function loadPrefs(){
+  try { return JSON.parse(localStorage.getItem(PREF_STORE)) || null; }
+  catch(e){ return null; }
+}
+function savePrefs(){
+  try {
+    localStorage.setItem(PREF_STORE, JSON.stringify({
+      mins: state.mins, reach: state.reach, style: state.style
+    }));
+  } catch(e){}
+}
 
 /* ---------- calibration ----------
 
@@ -1993,6 +2157,7 @@ function renderSaved(){
   box.innerHTML = "";
 
   if (!list.length){
+    document.getElementById("calib-slot").textContent = "";
     var p = document.createElement("p");
     p.id = "saved-empty";
     p.textContent = "Star a lap to keep it. Anything you tap Navigate on is kept automatically.";
@@ -2000,6 +2165,8 @@ function renderSaved(){
     return;
   }
 
+  var slot = document.getElementById("calib-slot");
+  slot.textContent = "";
   var waiting = pendingLap(list);
   if (waiting){
     var card = document.createElement("div");
@@ -2016,7 +2183,7 @@ function renderSaved(){
       editLap(waiting.id, function(x){ x.actual = -1; });
     });
     card.appendChild(q); card.appendChild(yes); card.appendChild(no);
-    box.appendChild(card);
+    slot.appendChild(card);   // outside the panes, so it's seen on either tab
   }
 
   list.forEach(function(e){
@@ -2125,7 +2292,7 @@ function navigate(){
 /* Two views in one panel: the route, or the options. They swap rather than
    stack, so the options are always one tap away even with a route on screen,
    and neither view is tall enough to need scrolling. */
-var optionsOpen = true;
+var optionsOpen = false;
 
 function showOptions(on){
   optionsOpen = on;
@@ -2199,13 +2366,24 @@ function wireChips(id, initial, onPick){
 
 /* ---------- start ---------- */
 
+/* Put a point in the middle of the map you can actually see. The panel covers
+   the bottom of the container, so centring on the container's true centre
+   drops the point behind it — which is what "it doesn't centre on me" meant.
+   Shifting the centre down by half the panel lifts the point into the gap. */
+function centreOn(lat, lng, zoom){
+  var z = (zoom === undefined) ? map.getZoom() : zoom;
+  var pt = map.project([lat, lng], z);
+  pt.y += sheetCover() / 2;
+  map.setView(map.unproject(pt, z), z);
+}
+
 function setStart(lat, lng, recentre){
   state.start = {lat:lat, lng:lng};
   if (startMarker) startMarker.setLatLng([lat,lng]);
   else startMarker = L.marker([lat,lng], {
     icon: L.divIcon({className:"", html:'<div class="start-dot"></div>', iconSize:[16,16], iconAnchor:[8,8]})
   }).addTo(map);
-  if (recentre) map.setView([lat,lng], 11);
+  if (recentre) centreOn(lat, lng, 12);
 }
 
 function init(){
@@ -2238,12 +2416,14 @@ function init(){
     say("Start moved. Search again from here.");
   });
 
-  wireChips("mins-chips", 0, function(v){ state.mins = +v; });
-  wireChips("reach-chips", 0, function(v){ state.reach = +v; });
+  wireChips("mins-chips", 0, function(v){ state.mins = +v; savePrefs(); renderPlan(); });
+  wireChips("reach-chips", 0, function(v){ state.reach = +v; savePrefs(); renderPlan(); });
   wireChips("style-chips", 0, function(v){
-    state.style = v;
+    state.style = v; savePrefs();
     if (state.results.length) say("Corner style changed. Search again to pick roads to suit.");
   });
+
+  applyPrefs();
 
   document.getElementById("go").addEventListener("click", search);
   document.getElementById("nav").addEventListener("click", navigate);
@@ -2257,6 +2437,7 @@ function init(){
   });
 
   renderPace();
+  renderPlan();
   document.getElementById("pace-reset").addEventListener("click", function(){
     if (!confirm("Forget your timings and go back to the default estimates?")) return;
     clearPace();
@@ -2266,13 +2447,15 @@ function init(){
 
   renderSaved();
   wireSheet();
-  showOptions(true);
+  showOptions(false);
   setTimeout(function(){ map.invalidateSize(); }, 80);
 
   if (navigator.geolocation){
     say("Finding you…");
     navigator.geolocation.getCurrentPosition(function(pos){
-      setStart(pos.coords.latitude, pos.coords.longitude, true);
+      setStart(pos.coords.latitude, pos.coords.longitude, false);
+      map.invalidateSize();
+      centreOn(pos.coords.latitude, pos.coords.longitude, 12);
       say("");
     }, function(){
       say("Location unavailable. Tap the map to set your start.", true);
