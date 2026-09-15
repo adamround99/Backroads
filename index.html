@@ -6,8 +6,15 @@
 <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#171B1E" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Backroad</title>
+<meta name="apple-mobile-web-app-title" content="Backroads">
+<meta name="description" content="Finds driving laps worth the fuel.">
+<title>Backroads</title>
+
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./app/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./app/icon-192.png">
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -205,6 +212,11 @@ details[open] summary::before{content:"\2212 "}
 #msg:empty{min-height:0;margin-top:0}
 #msg.bad{color:var(--accent)}
 
+/* Offline: the search button is the one thing that genuinely can't work,
+   so it's the one thing that looks disabled. Everything else stays live. */
+body.offline #go{opacity:.45}
+body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
+
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -293,7 +305,7 @@ details[open] summary::before{content:"\2212 "}
 "use strict";
 
 /* ============================================================
-   Backroad — finds driving laps worth the fuel.
+   Backroads — finds driving laps worth the fuel.
 
    Reads the road network from OpenStreetMap, measures every
    stretch for corners and for whether it's worth driving, then
@@ -312,9 +324,22 @@ var WEIGHTS = {
   flowing: [[30,0.8],[60,1.6],[100,2.4],[175,2.0],[300,0.8]]
 };
 
-/* Free OpenStreetMap query service. No key, but it is a shared public
-   resource, so ask once per area and remember the answer. */
-var OVERPASS = "https://overpass-api.de/api/interpreter";
+/* OpenStreetMap query service. Free and keyless, but a shared public
+   resource — so ask once per area and remember the answer. These are
+   mirrors of the same database: if one is busy, the next one will do.
+   Weekend mornings are peak load, which is exactly when this app gets
+   opened, so the fallbacks earn their keep. */
+var OVERPASS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.osm.jp/api/interpreter"
+];
+
+/* CARTO basemap key. Since Aug 2026 keyless tiles come back stamped
+   "API KEY REQUIRED". This ships to every visitor in the page source —
+   it can't be otherwise in a static page — so it's restricted by
+   domain at carto.com/basemaps/apikey rather than kept secret. */
+var CARTO_KEY = "cb1_3m6r_1_6a91ecb6ec4825e90b833af1";
 
 var MI = 0.621371;   // everything is measured in metres and shown in miles
 
@@ -522,6 +547,51 @@ function score(path){
 /* ---------- finding roads worth driving ---------- */
 
 /* The whole road network inside a disc, for circuit building. */
+/* Ask Overpass, working down the mirror list. A busy server (429/504) or a
+   dead one is worth retrying elsewhere; a malformed query (400) is our fault
+   and will fail identically everywhere, so that one gives up immediately.
+   Two passes over the list, with a pause between, because "busy" is usually
+   a matter of seconds. */
+function askOverpass(q){
+  var body = "data=" + encodeURIComponent(q);
+  var order = OVERPASS.concat(OVERPASS);   // second lap = the retry
+  var lastBusy = false;
+
+  function attempt(i){
+    if (i >= order.length){
+      throw new Error(lastBusy
+        ? "OpenStreetMap's query service is busy everywhere right now. Give it a minute."
+        : "Couldn't reach OpenStreetMap. Check your connection.");
+    }
+    var wait = i === OVERPASS.length ? 4000 : 0;   // pause before the second lap
+    return new Promise(function(res){ setTimeout(res, wait); })
+      .then(function(){
+        var ctl = window.AbortController ? new AbortController() : null;
+        var timer = setTimeout(function(){ ctl && ctl.abort(); }, 40000);
+        return fetch(order[i], {
+          method: "POST",
+          headers: {"Content-Type":"application/x-www-form-urlencoded"},
+          body: body,
+          signal: ctl ? ctl.signal : undefined
+        }).then(function(r){
+          clearTimeout(timer);
+          if (r.status === 400) throw new Error("stop:The road network query was rejected.");
+          if (!r.ok){ lastBusy = (r.status === 429 || r.status === 504); throw new Error("retry"); }
+          return r.json();
+        }, function(e){
+          clearTimeout(timer);
+          throw e;
+        });
+      })
+      .catch(function(e){
+        if (e && /^stop:/.test(e.message)) throw new Error(e.message.slice(5));
+        if (i + 1 < order.length && order[i + 1] !== order[i]) say("Server busy — trying another…");
+        return attempt(i + 1);
+      });
+  }
+  return attempt(0);
+}
+
 function fetchArea(start, radius){
   // Residential streets keep small networks joined up, but over a wide area
   // they are most of the data and none of the driving.
@@ -537,15 +607,7 @@ function fetchArea(start, radius){
         + 'way["amenity"="school"]' + at + ';'
         + 'node["highway"="speed_camera"]' + at + ';'
         + ');out geom;';
-  return fetch(OVERPASS, {
-    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
-    body:"data=" + encodeURIComponent(q)
-  }).then(function(r){
-    if (r.status === 429 || r.status === 504)
-      throw new Error("OpenStreetMap's query service is busy. Wait a minute and try again.");
-    if (!r.ok) throw new Error("Could not read the road network (" + r.status + ").");
-    return r.json();
-  }).then(function(j){
+  return askOverpass(q).then(function(j){
     var els = j.elements || [], ways = [], schools = [], cameras = [], i;
     for (i=0;i<els.length;i++){
       var e = els[i], tg = e.tags || {};
@@ -1258,6 +1320,7 @@ function say(text, bad){
 
 function clearRoutes(){
   state.results = []; state.active = -1;
+  window.dispatchEvent(new Event("backroads:route"));
   document.getElementById("routes").innerHTML = "";
   if (routeLine){ map.removeLayer(routeLine); routeLine = null; }
   if (ghostLine){ map.removeLayer(ghostLine); ghostLine = null; }
@@ -1287,6 +1350,7 @@ function show(i){
   var r = state.results[i];
   if (!r) return;
   state.active = i;
+  window.dispatchEvent(new Event("backroads:route"));
 
   Array.prototype.forEach.call(document.querySelectorAll(".rt"), function(el, n){
     el.className = "rt" + (n === i ? " on" : "");
@@ -1626,17 +1690,19 @@ function init(){
   // is also what you want in a car at night.
   var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
   function tileStyle(){ return dark && dark.matches ? "dark_all" : "rastertiles/voyager"; }
+  function tileUrl(){
+    return "https://{s}.basemaps.cartocdn.com/" + tileStyle() + "/{z}/{x}/{y}{r}.png"
+         + (CARTO_KEY ? "?key=" + CARTO_KEY : "");
+  }
 
-  tiles = L.tileLayer(
-    "https://{s}.basemaps.cartocdn.com/" + tileStyle() + "/{z}/{x}/{y}{r}.png", {
+  tiles = L.tileLayer(tileUrl(), {
       subdomains: "abcd", maxZoom: 19, detectRetina: true,
+      crossOrigin: true,
       attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
     }).addTo(map);
 
   if (dark && dark.addEventListener){
-    dark.addEventListener("change", function(){
-      tiles.setUrl("https://{s}.basemaps.cartocdn.com/" + tileStyle() + "/{z}/{x}/{y}{r}.png");
-    });
+    dark.addEventListener("change", function(){ tiles.setUrl(tileUrl()); });
   }
 
   window.addEventListener("load", function(){ map.invalidateSize(); });
@@ -1683,7 +1749,59 @@ function init(){
   }
 }
 
+/* ---------- installed-app behaviour ---------- */
+
+/* Offline: the app still runs — saved laps and cached tiles are local — but
+   a new search needs the network, so say so rather than failing cryptically. */
+function wireConnection(){
+  function show(){
+    document.body.classList.toggle("offline", !navigator.onLine);
+    if (!navigator.onLine) say("Offline — saved laps still work, new searches don't.", true);
+    else if (document.body.dataset.wasOffline === "1") say("");
+    document.body.dataset.wasOffline = navigator.onLine ? "0" : "1";
+  }
+  window.addEventListener("online", show);
+  window.addEventListener("offline", show);
+  if (!navigator.onLine) show();
+}
+
+/* Keep the screen on while a lap is on screen — you're reading it at a
+   junction, not typing on it, so the usual idle timer is wrong. */
+var wakeLock = null;
+function wireWakeLock(){
+  if (!("wakeLock" in navigator)) return;
+  function acquire(){
+    if (wakeLock || document.visibilityState !== "visible" || state.active < 0) return;
+    navigator.wakeLock.request("screen").then(function(l){
+      wakeLock = l;
+      l.addEventListener("release", function(){ wakeLock = null; });
+    })["catch"](function(){ /* denied or battery saver — not worth a message */ });
+  }
+  function release(){
+    if (wakeLock){ try { wakeLock.release(); } catch(e){} wakeLock = null; }
+  }
+  document.addEventListener("visibilitychange", function(){
+    if (document.visibilityState === "visible") acquire(); else release();
+  });
+  window.addEventListener("backroads:route", function(){
+    if (state.active >= 0) acquire(); else release();
+  });
+}
+
+function wireServiceWorker(){
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", function(){
+    navigator.serviceWorker.register("./sw.js")["catch"](function(){
+      /* Fails on file:// and on plain http — harmless, the app just
+         won't work offline. Nothing the driver needs to know about. */
+    });
+  });
+}
+
 init();
+wireConnection();
+wireWakeLock();
+wireServiceWorker();
 </script>
 </body>
 </html>
