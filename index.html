@@ -75,6 +75,13 @@ body{
   font-weight:500;font-size:26px;color:var(--slate);
 }
 .empty-line{color:var(--slate);font-size:15px;margin:2px 0 14px}
+.approach{color:var(--hot);font-size:14px;font-weight:500;margin-top:5px}
+.approach:empty{display:none}
+.lap-dot{
+  width:16px;height:16px;border-radius:50%;
+  background:var(--ink);border:3px solid var(--panel);
+  box-shadow:0 0 0 1px rgba(0,0,0,.25);
+}
 
 /* corner profile — the shape of the drive, start to finish */
 #profile{width:100%;height:44px;display:block;margin:10px 0 12px}
@@ -161,6 +168,7 @@ input[type=text]{
       <div class="dist" id="km">—<span>mi</span></div>
       <div class="dur" id="dur"></div>
     </div>
+    <div class="approach" id="approach"></div>
     <svg id="profile" viewBox="0 0 320 44" preserveAspectRatio="none" aria-label="Corner severity along the route"></svg>
     <div class="stats">
       <div class="stat"><b id="s-run">—</b><i>miles best stretch</i></div>
@@ -182,6 +190,11 @@ input[type=text]{
   <div class="dial">
     <div class="dial-head"><label for="km-range" id="km-label">Lap length</label><output id="km-out">15 miles</output></div>
     <input type="range" id="km-range" min="5" max="125" step="1" value="15">
+  </div>
+
+  <div class="dial" id="reach-dial">
+    <div class="dial-head"><label for="reach">Drive out to the start</label><output id="reach-out">up to 12 miles</output></div>
+    <input type="range" id="reach" min="0" max="30" step="1" value="12">
   </div>
 
   <div class="dial">
@@ -263,7 +276,7 @@ var state = {
   caps: {passThrough:true, elevation:true, details:true}   // trimmed if the routing plan refuses them
 };
 
-var map, startMarker, routeLine, ghostLine;
+var map, startMarker, lapMarker, routeLine, ghostLine;
 
 /* ---------- geometry ---------- */
 
@@ -668,7 +681,7 @@ function buildGraph(ways, latScale){
       if (k === from){ run = [p]; continue; }          // ignore closed stubs
 
       var prep = prepare(run);
-      if (prep.metres > 20){
+      if (prep.metres > 0){
         var pts = rev ? run.slice().reverse() : run;
         var a = rev ? k : from, b = rev ? from : k;
         addNode(a, pts[0]); addNode(b, pts[pts.length-1]);
@@ -757,22 +770,54 @@ function components(graph){
   return {label:label, sizes:sizes};
 }
 
-/* Nearest junction that's actually part of a usable network, not the nearest
-   junction full stop. */
-function pickStart(graph, lng, lat){
+/* Candidate places to begin a lap. The lap doesn't have to start at the
+   user's door — driving out to a better bit of country is normal — so this
+   returns a spread of junctions across the area, favouring ones that touch
+   good road, and reports how far each is from the user. */
+function pickStarts(graph, lng, lat, reachM, count){
   var comp = components(graph);
-  var biggest = 0, i;
+  var biggest = 0, i, k;
   for (i=0;i<comp.sizes.length;i++) if (comp.sizes[i] > biggest) biggest = comp.sizes[i];
-  var floor = Math.max(25, biggest*0.15);
+  var floor = Math.max(4, biggest * 0.5);
+  var ls = graph.latScale;
+  var me = [lng, lat];
 
-  var best = null, bestD = Infinity;
-  for (var k in graph.nodes){
+  var pool = [];
+  for (k in graph.nodes){
     if (comp.sizes[comp.label[k]] < floor) continue;
-    var p = graph.nodes[k];
-    var d = (p[0]-lng)*(p[0]-lng) + (p[1]-lat)*(p[1]-lat);
-    if (d < bestD){ bestD = d; best = k; }
+    var away = metresBetween(graph.nodes[k], me, ls);
+    if (away > reachM) continue;
+    var opts = graph.adj[k] || [], fun = 0;
+    for (i=0;i<opts.length;i++) if (graph.edges[opts[i]].fun > fun) fun = graph.edges[opts[i]].fun;
+    pool.push({key:k, away:away, fun:fun, p:graph.nodes[k]});
   }
-  return best;
+
+  // Nothing within reach: fall back to the nearest usable junction at any range.
+  if (!pool.length){
+    var best = null, bestD = Infinity;
+    for (k in graph.nodes){
+      if (comp.sizes[comp.label[k]] < floor) continue;
+      var d = metresBetween(graph.nodes[k], me, ls);
+      if (d < bestD){ bestD = d; best = k; }
+    }
+    return {starts: best ? [{key:best, away:bestD}] : [], biggest:biggest, parts:comp.sizes.length};
+  }
+
+  pool.sort(function(a,b){ return b.fun - a.fun; });
+
+  // Spread them out, so we're not testing eight junctions on the same lane.
+  var picked = [], spacing = Math.max(1200, reachM/5);
+  while (picked.length < count && spacing > 150){
+    for (i=0;i<pool.length && picked.length<count;i++){
+      var ok = true;
+      for (var j=0;j<picked.length;j++){
+        if (metresBetween(pool[i].p, picked[j].p, ls) < spacing){ ok = false; break; }
+      }
+      if (ok && picked.indexOf(pool[i]) === -1) picked.push(pool[i]);
+    }
+    spacing = spacing/2;
+  }
+  return {starts: picked, biggest: biggest, parts: comp.sizes.length};
 }
 
 /* Small seeded random so a given search is repeatable. */
@@ -901,14 +946,14 @@ function walkCircuit(graph, startKey, targetM, seed){
     node = chosen.other;
   }
 
-  if (!path.length) return null;
+  if (!path.length) return {fail:"stuck"};
 
   var back = wayBack(graph, node, startKey, used);
-  if (!back) return null;
+  if (!back) return {fail:"noway"};
   for (var b=0;b<back.length;b++){ path.push(back[b]); total += back[b].e.metres; }
 
-  if (total < targetM*0.65 || total > targetM*1.45) return null;
-  return {path:path, metres:total};
+  return {path:path, metres:total,
+          onTarget: total >= targetM*0.65 && total <= targetM*1.45};
 }
 
 /* Stitch a circuit's segments into the same shape a routed path has, so the
@@ -1016,21 +1061,36 @@ function routeThrough(key, points){
   });
 }
 
-function findCircuits(graph, start, targetM, tries){
-  var startKey = pickStart(graph, start.lng, start.lat);
-  if (!startKey) return [];
-  var out = [], seen = {}, t;
-  for (t=0;t<tries;t++){
-    var c = walkCircuit(graph, startKey, targetM, t+1);
-    if (!c) continue;
-    var ids = c.path.map(function(l){ return l.ei; }).sort(function(a,b){ return a-b; }).join(",");
-    if (seen[ids]) continue;
-    seen[ids] = 1;
-    var r = score(circuitToPath(c));
-    r.total -= Math.abs(r.km*1000 - targetM)/targetM * 4;   // prefer the length asked for
-    out.push(r);
+function findCircuits(graph, start, targetM, reachM, tries){
+  var picked = pickStarts(graph, start.lng, start.lat, reachM, 8);
+  var diag = {parts: picked.parts, biggest: picked.biggest,
+              starts: picked.starts.length, stuck:0, noway:0, closed:0};
+  if (!picked.starts.length) return {found:[], diag:diag};
+
+  var on = [], off = [], seen = {}, s, t;
+  var each = Math.max(12, Math.round(tries/picked.starts.length));
+
+  for (s=0;s<picked.starts.length;s++){
+    var from = picked.starts[s];
+    for (t=0;t<each;t++){
+      var c = walkCircuit(graph, from.key, targetM, s*1000 + t + 1);
+      if (!c) continue;
+      if (c.fail){ diag[c.fail]++; continue; }
+      diag.closed++;
+
+      var ids = c.path.map(function(l){ return l.ei; }).sort(function(a,b){ return a-b; }).join(",");
+      if (seen[ids]) continue;
+      seen[ids] = 1;
+
+      var r = score(circuitToPath(c));
+      r.approach = from.away;
+      r.total -= Math.abs(r.km*1000 - targetM)/targetM * 4;    // prefer the length asked for
+      r.total -= (from.away/1000) * 0.25;                      // and a shorter drive out
+      if (c.onTarget) on.push(r); else off.push(r);
+    }
   }
-  return out;
+
+  return {found: on.length ? on : off, diag: diag, loose: !on.length && off.length > 0};
 }
 
 function begin(){
@@ -1054,16 +1114,28 @@ function present(found, note){
 
 function searchCircuit(km){
   var targetM = km*1000;
-  var radius = Math.min(28000, targetM/(2*Math.PI) * 1.5);
+  var reachM = (+document.getElementById("reach").value) / MI * 1000;
+  var radius = Math.min(34000, targetM/(2*Math.PI) * 1.5 + reachM);
 
   return ensureGraph(state.start, radius).then(function(graph){
     if (graph.edges.length < 30)
       throw new Error("Not enough connected road around here to build a lap. Try starting somewhere less built up.");
     say("Looking for a lap…");
-    var found = findCircuits(graph, state.start, targetM, 160);
-    present(found, "Could not put a lap together at that length. Try a shorter one — long laps need a lot of joined-up lane.");
-    say(graph.edges.length + " segments mapped, " + found.length
-        + " laps found. No routing credits used.");
+    var r = findCircuits(graph, state.start, targetM, reachM, 200);
+    var d = r.diag;
+
+    if (!r.found.length){
+      throw new Error("No lap closed. " + graph.edges.length + " segments, "
+        + d.parts + " separate networks, biggest has " + d.biggest + " junctions, "
+        + d.starts + " start points tried. "
+        + d.stuck + " runs hit a dead end, " + d.noway + " found no way back.");
+    }
+
+    present(r.found);
+    say(graph.edges.length + " segments, " + d.starts + " start points tried, "
+        + r.found.length + " laps"
+        + (r.loose ? " — none at your length, showing the closest." : ".")
+        + " No routing credits used.");
   });
 }
 
@@ -1138,6 +1210,8 @@ function clearRoutes(){
   document.getElementById("routes").innerHTML = "";
   if (routeLine){ map.removeLayer(routeLine); routeLine = null; }
   if (ghostLine){ map.removeLayer(ghostLine); ghostLine = null; }
+  if (lapMarker){ map.removeLayer(lapMarker); lapMarker = null; }
+  document.getElementById("approach").textContent = "";
   document.getElementById("readout").hidden = true;
   document.getElementById("empty").hidden = false;
   document.getElementById("gpx").disabled = true;
@@ -1177,6 +1251,17 @@ function show(i){
   document.getElementById("km").innerHTML = Math.round(r.km*MI) + "<span>mi</span>";
   document.getElementById("dur").textContent =
     Math.floor(r.mins/60) + "h " + String(r.mins%60).padStart(2,"0");
+  var away = (r.approach || 0) * MI / 1000;
+  document.getElementById("approach").textContent =
+    away > 0.6 ? "Lap starts " + away.toFixed(away < 10 ? 1 : 0) + " miles away" : "";
+
+  if (lapMarker){ map.removeLayer(lapMarker); lapMarker = null; }
+  if (away > 0.6){
+    lapMarker = L.marker([r.pts[0][1], r.pts[0][0]], {
+      icon: L.divIcon({className:"", html:'<div class="lap-dot"></div>', iconSize:[16,16], iconAnchor:[8,8]})
+    }).addTo(map);
+  }
+
   document.getElementById("s-run").textContent = (r.best*MI).toFixed(1);
   document.getElementById("s-twisty").textContent = Math.round(r.twisty*100) + "%";
   document.getElementById("s-back").textContent = Math.round(Math.min(1, r.lap*2)*100) + "%";
@@ -1221,15 +1306,29 @@ function gpx(){
 
 /* Google Maps takes 8 waypoints, so the loop gets pinned down to
    its 8 most useful points. It will smooth the gaps its own way. */
+/* Google Maps takes 8 waypoints. Send it out to the lap first, then round it,
+   finishing back where the lap began. It smooths the gaps its own way. */
 function navigate(){
   var r = state.results[state.active];
   if (!r) return;
-  var picks = [], n = 8;
-  for (var i=1;i<=n;i++) picks.push(r.pts[Math.floor(r.pts.length*i/(n+1))]);
-  var here = r.pts[0][1].toFixed(5) + "," + r.pts[0][0].toFixed(5);
-  var way = picks.map(function(p){ return p[1].toFixed(5) + "," + p[0].toFixed(5); }).join("|");
-  window.open("https://www.google.com/maps/dir/?api=1&origin=" + here +
-    "&destination=" + here + "&waypoints=" + encodeURIComponent(way) +
+
+  var lapStart = r.pts[0];
+  var at = lapStart[1].toFixed(5) + "," + lapStart[0].toFixed(5);
+  var origin = state.start
+    ? state.start.lat.toFixed(5) + "," + state.start.lng.toFixed(5)
+    : at;
+
+  var away = (r.approach || 0);
+  var slots = away > 600 ? 7 : 8;              // one slot spent reaching the lap
+  var way = [];
+  if (away > 600) way.push(at);
+  for (var i=1;i<=slots;i++){
+    var p = r.pts[Math.floor(r.pts.length*i/(slots+1))];
+    way.push(p[1].toFixed(5) + "," + p[0].toFixed(5));
+  }
+
+  window.open("https://www.google.com/maps/dir/?api=1&origin=" + origin +
+    "&destination=" + at + "&waypoints=" + encodeURIComponent(way.join("|")) +
     "&travelmode=driving", "_blank");
 }
 
@@ -1265,6 +1364,12 @@ function init(){
   kmRange.addEventListener("input", function(){
     document.getElementById("km-out").textContent = kmRange.value + (kmRange.value === "1" ? " mile" : " miles");
   });
+  var reach = document.getElementById("reach");
+  reach.addEventListener("input", function(){
+    document.getElementById("reach-out").textContent =
+      reach.value === "0" ? "start where I am" : "up to " + reach.value + " miles";
+  });
+
   var seeds = document.getElementById("seeds");
   seeds.addEventListener("input", function(){
     document.getElementById("seeds-out").textContent = seeds.value;
@@ -1277,6 +1382,7 @@ function init(){
     Array.prototype.forEach.call(this.children, function(c){ c.className = c === b ? "on" : ""; });
     document.getElementById("km-label").textContent =
       state.mode === "circuit" ? "Lap length" : "Loop length";
+    document.getElementById("reach-dial").hidden = state.mode !== "circuit";
     clearRoutes();
     say(state.mode === "circuit"
       ? "Circuits are built from the map itself — no routing credits used."
