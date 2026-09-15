@@ -22,7 +22,6 @@
   --hair:#C9CBC4;
   --route:#1F5FD6;
   --hot:#D9401B;
-  --sheet-collapsed:210px;
 }
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -36,7 +35,7 @@ body{
 }
 
 /* ---------- map ---------- */
-#map{position:fixed;inset:0;bottom:var(--sheet-collapsed);background:var(--paper);z-index:1}
+#map{position:fixed;inset:0;background:var(--paper);z-index:1}
 .leaflet-container{font-family:Barlow,sans-serif}
 .leaflet-control-attribution{font-size:9px;background:rgba(253,253,252,.8)}
 
@@ -53,15 +52,28 @@ body{
   border-top:1px solid var(--hair);
   box-shadow:0 -8px 24px rgba(22,25,26,.10);
   padding:0 18px calc(14px + env(safe-area-inset-bottom));
-  max-height:86vh;overflow-y:auto;
-  transition:transform .22s ease;
+  max-height:88vh;overflow-y:auto;
+  transform:translateY(0);
+  will-change:transform;
+  touch-action:pan-y;
 }
-#sheet.tall{--sheet-collapsed:auto}
+#sheet.snap{transition:transform .24s cubic-bezier(.32,.72,0,1)}
+#sheet.shut{overflow:hidden}
 
+/* Generous invisible hit area — a 4px bar is not a touch target. */
 #grip{
-  width:40px;height:4px;border-radius:2px;background:var(--hair);
-  margin:9px auto 12px;
+  display:block;width:100%;height:30px;padding:0;border:0;background:none;
+  cursor:grab;touch-action:none;
 }
+#grip:active{cursor:grabbing}
+#grip i{
+  display:block;width:40px;height:4px;border-radius:2px;
+  background:var(--hair);margin:12px auto 0;
+  transition:background .15s, width .15s;
+}
+#grip:hover i, #sheet.shut #grip i{background:var(--slate);width:46px}
+
+#more{padding-bottom:2px}
 
 /* ---------- readout ---------- */
 .readout{display:flex;align-items:baseline;gap:10px;margin-bottom:2px}
@@ -161,7 +173,8 @@ input[type=text]{
 <div id="map"></div>
 
 <div id="sheet">
-  <div id="grip"></div>
+  <div id="grip" role="button" tabindex="0" aria-label="Expand or collapse the panel"><i></i></div>
+  <div id="peek">
 
   <div id="readout" hidden>
     <div class="readout">
@@ -186,7 +199,9 @@ input[type=text]{
     <button id="gpx" disabled>GPX</button>
     <button id="nav" disabled>Navigate</button>
   </div>
+  </div>
 
+  <div id="more">
   <div class="dial">
     <div class="dial-head"><label for="km-range" id="km-label">Lap length</label><output id="km-out">15 miles</output></div>
     <input type="range" id="km-range" min="5" max="125" step="1" value="15">
@@ -232,6 +247,7 @@ input[type=text]{
       <input type="range" id="seeds" min="3" max="14" step="1" value="6">
     </div>
   </details>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -249,7 +265,7 @@ var GH = "https://graphhopper.com/api/1/route";
 
 /* Road classes worth driving, and the ones that ruin a loop. */
 var GOOD = {tertiary:1, unclassified:1, secondary:1};
-var DULL = {motorway:1, trunk:1, primary:1, residential:1, living_street:1, service:1, track:1};
+var DULL = {motorway:1, trunk:1, residential:1, living_street:1, service:1, track:1};
 
 /* Corner radius (m) -> weight. Two characters of drive. */
 var WEIGHTS = {
@@ -560,14 +576,18 @@ function fetchRoads(start, radius){
 function fetchArea(start, radius){
   // Residential streets keep small networks joined up, but over a wide area
   // they are most of the data and none of the driving.
-  var classes = radius > 12000 ? "secondary|tertiary|unclassified"
-                               : "secondary|tertiary|unclassified|residential";
-  var q = '[out:json][timeout:90];'
-        + 'way["highway"~"^(' + classes + ')$"]'
-        + '["access"!~"private|no"]'
-        + '["surface"!~"gravel|dirt|ground|unpaved"]'
-        + '(around:' + Math.round(radius) + ',' + start.lat.toFixed(5) + ',' + start.lng.toFixed(5) + ');'
-        + 'out geom;';
+  // A roads are mostly dull but they join lane networks together, so they're
+  // fetched and then weighted down rather than excluded outright.
+  var classes = radius > 12000 ? "primary|secondary|tertiary|unclassified"
+                               : "primary|secondary|tertiary|unclassified|residential";
+  var at = '(around:' + Math.round(radius) + ',' + start.lat.toFixed(5) + ',' + start.lng.toFixed(5) + ')';
+  var q = '[out:json][timeout:90];('
+        + 'way["highway"~"^(' + classes + ')$"]["access"!~"private|no"]'
+        + '["surface"!~"gravel|dirt|ground|unpaved"]' + at + ';'
+        + 'node["amenity"="school"]' + at + ';'
+        + 'way["amenity"="school"]' + at + ';'
+        + 'node["highway"="speed_camera"]' + at + ';'
+        + ');out geom;';
   return fetch(OVERPASS, {
     method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
     body:"data=" + encodeURIComponent(q)
@@ -576,15 +596,35 @@ function fetchArea(start, radius){
       throw new Error("OpenStreetMap's query service is busy. Wait a minute and try again.");
     if (!r.ok) throw new Error("Could not read the road network (" + r.status + ").");
     return r.json();
-  }).then(function(j){ return j.elements || []; });
+  }).then(function(j){
+    var els = j.elements || [], ways = [], schools = [], cameras = [], i;
+    for (i=0;i<els.length;i++){
+      var e = els[i], tg = e.tags || {};
+      if (tg.highway === "speed_camera"){
+        if (e.type === "node") cameras.push([e.lon, e.lat]);
+      } else if (tg.amenity === "school"){
+        if (e.type === "node") schools.push([e.lon, e.lat]);
+        else if (e.bounds) schools.push([(e.bounds.minlon+e.bounds.maxlon)/2,
+                                         (e.bounds.minlat+e.bounds.maxlat)/2]);
+      } else if (e.type === "way" && tg.highway){
+        ways.push(e);
+      }
+    }
+    return {ways: ways, schools: schools, cameras: cameras};
+  });
 }
 
 function ensureGraph(start, radius){
   var key = "g:" + start.lat.toFixed(3)+","+start.lng.toFixed(3)+","+Math.round(radius);
   if (state.roadsKey === key && state.graph) return Promise.resolve(state.graph);
   say("Mapping the roads around you…");
-  return fetchArea(start, radius).then(function(ways){
-    var g = pruneSpurs(buildGraph(ways, 111320 * Math.cos(start.lat * Math.PI/180)));
+  return fetchArea(start, radius).then(function(data){
+    var ls = 111320 * Math.cos(start.lat * Math.PI/180);
+    var schools = data.schools.length ? hazardCells(data.schools, ls, 250) : null;
+    var cameras = data.cameras.length ? hazardCells(data.cameras, ls, 150) : null;
+    var g = pruneSpurs(buildGraph(data.ways, ls, schools, cameras));
+    g.schools = data.schools.length;
+    g.cameras = data.cameras.length;
     state.graph = g; state.roadsKey = key; state.roads = null;
     return g;
   });
@@ -642,6 +682,78 @@ function pickWaypoints(roads, start, k, variant, style){
    repeating anything. Built here from the raw map rather than by asking a
    routing service, because routing services optimise for arriving. */
 
+/* How much a road is worth driving, before corners come into it. B roads and
+   lanes are the point; residential streets and 30 limits are not. */
+var CLASS_WEIGHT = {
+  secondary: 1.25,      // B roads
+  tertiary: 1.15,       // C roads and the better lanes
+  unclassified: 1.00,   // country lanes
+  primary: 0.55,        // A roads — usually dull, occasionally brilliant
+  residential: 0.18,
+  living_street: 0.06,
+  service: 0.04,
+  track: 0.04
+};
+
+/* A speed limit is the best single clue that a road runs through somewhere
+   built up, which is where the driving stops being any fun. */
+function speedFactor(tags){
+  var v = tags.maxspeed;
+  if (!v) return tags.lit === "yes" ? 0.65 : 1;   // lit usually means houses
+  var m = /(\d+)/.exec(v);
+  if (!m) return 1;
+  var n = +m[1];
+  if (!/mph/i.test(v)) n *= 0.621371;             // tagged in km/h
+  if (n <= 20) return 0.10;
+  if (n <= 30) return 0.32;
+  if (n <= 40) return 0.80;
+  return 1.15;
+}
+
+function roadQuality(tags, schoolShare, cameraShare){
+  var q = CLASS_WEIGHT[tags.highway] !== undefined ? CLASS_WEIGHT[tags.highway] : 0.6;
+  q *= speedFactor(tags);
+  if (tags.traffic_calming) q *= 0.35;            // speed bumps
+  if (tags.junction === "roundabout") q *= 0.5;
+  q *= 1 - 0.80 * schoolShare;
+  // A camera means a road that's busy, built up, or has a history of crashes.
+  // Treated as a mark against the road, not as something to dodge.
+  q *= 1 - 0.45 * cameraShare;
+  return Math.max(q, 0.01);
+}
+
+/* Schools aren't tagged as zones in Britain, so proximity is the best
+   available proxy: mark the squares around each point of interest. */
+function hazardCells(points, latScale, size){
+  var cells = {}, i, dx, dy;
+  for (i=0;i<points.length;i++){
+    var cx = Math.round(points[i][0]*latScale/size);
+    var cy = Math.round(points[i][1]*110540/size);
+    for (dx=-1;dx<=1;dx++) for (dy=-1;dy<=1;dy++) cells[(cx+dx)+":"+(cy+dy)] = 1;
+  }
+  return {cells:cells, size:size, latScale:latScale};
+}
+
+function nearHazard(index, p){
+  if (!index) return false;
+  var k = Math.round(p[0]*index.latScale/index.size) + ":" +
+          Math.round(p[1]*110540/index.size);
+  return index.cells[k] === 1;
+}
+
+/* How much of a road runs past the thing, not merely whether its midpoint
+   happens to. A lane that clips one corner of a school zone shouldn't be
+   condemned the same as one that runs the length of the playground. */
+function hazardShare(index, pts){
+  if (!index || pts.length < 2) return 0;
+  var samples = Math.min(40, Math.max(4, pts.length)), hit = 0;
+  for (var i=0;i<samples;i++){
+    var p = pts[Math.min(pts.length-1, Math.floor(i*pts.length/samples))];
+    if (nearHazard(index, p)) hit++;
+  }
+  return hit/samples;
+}
+
 function nodeKey(p){ return p[0].toFixed(5) + ":" + p[1].toFixed(5); }
 
 function metresBetween(a, b, latScale){
@@ -651,7 +763,7 @@ function metresBetween(a, b, latScale){
 
 /* Split every road where it meets another. Shared points are shared
    coordinates, so junctions fall out of counting how often each one appears. */
-function buildGraph(ways, latScale){
+function buildGraph(ways, latScale, schools, cameras){
   var seen = {}, i, n, k;
   for (i=0;i<ways.length;i++){
     var g = ways[i].geometry;
@@ -689,7 +801,8 @@ function buildGraph(ways, latScale){
         var sev = 0;
         for (var s=0;s<st.radii.length;s++) sev += severity(st.radii[s]);
         sev = st.radii.length ? sev/st.radii.length : 0;
-        edges.push({from:a, to:b, pts:pts, metres:prep.metres, fun:sev,
+        var q = roadQuality(tags, hazardShare(schools, pts), hazardShare(cameras, pts));
+        edges.push({from:a, to:b, pts:pts, metres:prep.metres, fun:sev, quality:q,
                     oneway:(one||rev), cls:tags.highway || "unclassified"});
         adj[a].push(edges.length-1);
         adj[b].push(edges.length-1);
@@ -877,7 +990,7 @@ function wayBack(graph, from, to, used){
       var ei = opts[i], e = graph.edges[ei];
       if (e.oneway && e.from !== node) continue;
       var other = e.from === node ? e.to : e.from;
-      var cost = e.metres * (used[ei] ? 3 : 1) / (0.25 + e.fun);
+      var cost = e.metres * (used[ei] ? 3 : 1) / (0.15 + e.fun * e.quality);
       var nd = d + cost;
       if (dist[other] === undefined || nd < dist[other]){
         dist[other] = nd;
@@ -929,7 +1042,7 @@ function walkCircuit(graph, startKey, targetM, seed){
     var leash = here > targetM * 0.18;
     var sum = 0;
     for (i=0;i<cands.length;i++){
-      var w = Math.pow(0.04 + cands[i].e.fun, 2.4);
+      var w = Math.pow(0.04 + cands[i].e.fun, 2.4) * cands[i].e.quality;
       if (leash){
         var there = metresBetween(graph.nodes[cands[i].other], home, ls);
         w *= there < here ? 3 : 0.35;
@@ -1132,8 +1245,8 @@ function searchCircuit(km){
     }
 
     present(r.found);
-    say(graph.edges.length + " segments, " + d.starts + " start points tried, "
-        + r.found.length + " laps"
+    say(graph.edges.length + " segments, " + (graph.schools||0) + " schools and "
+        + (graph.cameras||0) + " cameras marked, " + r.found.length + " laps"
         + (r.loose ? " — none at your length, showing the closest." : ".")
         + " No routing credits used.");
   });
@@ -1244,7 +1357,7 @@ function show(i){
   if (ghostLine) map.removeLayer(ghostLine);
   ghostLine = L.polyline(latlngs, {color:"#FDFDFC", weight:9, opacity:.9}).addTo(map);
   routeLine = L.polyline(latlngs, {color:"#1F5FD6", weight:4.5, opacity:.95}).addTo(map);
-  map.fitBounds(routeLine.getBounds(), {padding:[28,28]});
+  frameRoute(routeLine.getBounds());
 
   document.getElementById("empty").hidden = true;
   document.getElementById("readout").hidden = false;
@@ -1269,6 +1382,7 @@ function show(i){
   drawProfile(profile(r.prep, 64));
   document.getElementById("gpx").disabled = false;
   document.getElementById("nav").disabled = false;
+  if (!sheet.shut) openSheet(false);
 }
 
 function drawProfile(vals){
@@ -1332,6 +1446,97 @@ function navigate(){
     "&travelmode=driving", "_blank");
 }
 
+/* ---------- the sheet ---------- */
+
+/* The grip implied the panel could be dragged, so now it can. Collapsed shows
+   the route and the buttons; expanded shows the controls. The map sits behind
+   the whole thing and gets told to re-measure whenever that changes, which
+   Leaflet will not work out for itself. */
+var sheet = {shut:true, y:0, drop:0};
+
+function sheetMetrics(){
+  var el = document.getElementById("sheet");
+  var peek = document.getElementById("peek");
+  var more = document.getElementById("more");
+  var prev = el.style.transform;
+  el.style.transform = "translateY(0)";           // measure it open
+  var full = el.offsetHeight, peekH = peek.offsetHeight + 30;
+  el.style.transform = prev;
+  sheet.drop = Math.max(0, Math.min(more.offsetHeight, full - peekH));
+  return peekH;
+}
+
+function setSheet(y, animate){
+  var el = document.getElementById("sheet");
+  el.classList.toggle("snap", !!animate);
+  sheet.y = y;
+  el.style.transform = "translateY(" + y + "px)";
+  el.classList.toggle("shut", y > sheet.drop/2);
+}
+
+function openSheet(open){
+  sheetMetrics();
+  sheet.shut = !open;
+  setSheet(open ? 0 : sheet.drop, true);
+}
+
+function visibleMap(){
+  var peek = document.getElementById("peek");
+  return peek.offsetHeight + 46;                   // what the sheet covers when shut
+}
+
+function frameRoute(bounds){
+  map.fitBounds(bounds, {
+    paddingTopLeft: [26, 26],
+    paddingBottomRight: [26, visibleMap() + 16]
+  });
+}
+
+function wireSheet(){
+  var grip = document.getElementById("grip");
+  var start = 0, from = 0, moved = 0, dragging = false;
+
+  grip.addEventListener("pointerdown", function(e){
+    sheetMetrics();
+    dragging = true; moved = 0;
+    start = e.clientY; from = sheet.y;
+    grip.setPointerCapture(e.pointerId);
+    document.getElementById("sheet").classList.remove("snap");
+  });
+
+  grip.addEventListener("pointermove", function(e){
+    if (!dragging) return;
+    var dy = e.clientY - start;
+    if (Math.abs(dy) > moved) moved = Math.abs(dy);
+    setSheet(Math.max(0, Math.min(sheet.drop, from + dy)), false);
+  });
+
+  function release(){
+    if (!dragging) return;
+    dragging = false;
+    if (moved < 6){ openSheet(sheet.shut); return; }   // a tap, not a drag
+    openSheet(sheet.y < sheet.drop/2);
+  }
+  grip.addEventListener("pointerup", release);
+  grip.addEventListener("pointercancel", release);
+
+  grip.addEventListener("keydown", function(e){
+    if (e.key === "Enter" || e.key === " "){ e.preventDefault(); openSheet(sheet.shut); }
+  });
+
+  var settle;
+  function relayout(){
+    clearTimeout(settle);
+    settle = setTimeout(function(){
+      sheetMetrics();
+      setSheet(sheet.shut ? sheet.drop : 0, false);
+      if (map) map.invalidateSize();
+    }, 120);
+  }
+  window.addEventListener("resize", relayout);
+  window.addEventListener("orientationchange", relayout);
+}
+
 /* ---------- start ---------- */
 
 function setStart(lat, lng, recentre){
@@ -1349,6 +1554,8 @@ function init(){
     maxZoom: 18,
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map);
+
+  window.addEventListener("load", function(){ map.invalidateSize(); });
 
   map.on("click", function(e){
     setStart(e.latlng.lat, e.latlng.lng, false);
@@ -1400,6 +1607,9 @@ function init(){
   document.getElementById("go").addEventListener("click", search);
   document.getElementById("gpx").addEventListener("click", gpx);
   document.getElementById("nav").addEventListener("click", navigate);
+
+  wireSheet();
+  setTimeout(function(){ openSheet(false); map.invalidateSize(); }, 60);
 
   if (navigator.geolocation){
     say("Finding you…");
