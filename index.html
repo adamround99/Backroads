@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
-<meta name="theme-color" content="#16191A">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#171B1E" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Backroad</title>
@@ -14,154 +15,175 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 
 <style>
+/* ---------- tokens ---------- */
 :root{
-  --paper:#E9EAE5;
-  --panel:#FDFDFC;
-  --ink:#16191A;
-  --slate:#5B6360;
-  --hair:#C9CBC4;
-  --route:#1F5FD6;
-  --hot:#D9401B;
+  --bg:#EDEFEE;
+  --surface:#FFFFFF;
+  --raised:#F2F4F3;
+  --ink:#0E1417;
+  --muted:#6C7671;
+  --line:#E3E7E5;
+  --route:#3D5AFE;        /* the drawn lap */
+  --accent:#FF5A1F;       /* where the lap begins, favourites */
+  --shadow:0 -14px 44px rgba(14,20,23,.16);
+  --r:14px;
+  --pill:999px;
+}
+
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0E1113;
+    --surface:#171B1E;
+    --raised:#21262A;
+    --ink:#ECEFEE;
+    --muted:#8C958F;
+    --line:#282E33;
+    --route:#6E86FF;
+    --accent:#FF7A47;
+    --shadow:0 -14px 44px rgba(0,0,0,.55);
+  }
 }
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;margin:0;overscroll-behavior:none}
 body{
   font-family:Barlow,system-ui,-apple-system,sans-serif;
-  background:var(--paper);
-  color:var(--ink);
-  font-size:16px;
-  line-height:1.45;
+  background:var(--bg);color:var(--ink);
+  font-size:16px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;
 }
+button{font-family:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-radius:6px}
 
 /* ---------- map ---------- */
-#map{position:fixed;inset:0;background:var(--paper);z-index:1}
-.leaflet-container{font-family:Barlow,sans-serif}
-.leaflet-control-attribution{font-size:9px;background:rgba(253,253,252,.8)}
-
-.start-dot{
-  width:18px;height:18px;border-radius:50%;
-  background:var(--hot);border:3px solid var(--panel);
-  box-shadow:0 0 0 1px rgba(0,0,0,.25);
+#map{position:fixed;inset:0;background:var(--bg);z-index:1}
+.leaflet-container{font-family:Barlow,sans-serif;background:var(--bg)}
+.leaflet-control-attribution{
+  font-size:9px;background:var(--surface);color:var(--muted);
+  border-radius:var(--pill) 0 0 0;padding:2px 8px;
 }
+.leaflet-control-attribution a{color:var(--muted)}
 
-/* ---------- sheet ---------- */
+.start-dot,.lap-dot{
+  width:16px;height:16px;border-radius:50%;
+  border:3px solid var(--surface);
+  box-shadow:0 2px 8px rgba(0,0,0,.3);
+}
+.start-dot{background:var(--accent)}
+.lap-dot{width:20px;height:20px;background:var(--route)}
+
+/* ---------- panel ---------- */
 #sheet{
   position:fixed;left:0;right:0;bottom:0;z-index:400;
-  background:var(--panel);
-  border-top:1px solid var(--hair);
-  box-shadow:0 -8px 24px rgba(22,25,26,.10);
-  padding:0 18px calc(14px + env(safe-area-inset-bottom));
-  max-height:66vh;overflow-y:auto;
+  background:var(--surface);
+  border-radius:22px 22px 0 0;
+  box-shadow:var(--shadow);
+  padding:0 20px calc(16px + env(safe-area-inset-bottom));
+  max-height:70vh;overflow-y:auto;
 }
 
-/* Options replace the results rather than sitting under them, so both views
-   stay short enough to need no scrolling and the map keeps most of the screen. */
 #grip{
   display:flex;align-items:center;justify-content:center;gap:7px;
-  width:100%;height:44px;padding:0;border:0;border-radius:0;background:none;
+  width:auto;margin:10px auto 14px;padding:8px 18px;
+  border:0;border-radius:var(--pill);background:var(--raised);
   font-family:"Barlow Condensed",Barlow,sans-serif;
-  font-weight:600;font-size:14px;letter-spacing:.07em;text-transform:uppercase;
-  color:var(--slate);cursor:pointer;
+  font-weight:600;font-size:13px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--muted);
 }
 #grip:hover{color:var(--ink)}
 #grip svg{
-  width:15px;height:15px;fill:none;stroke:currentColor;
-  stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;
+  width:14px;height:14px;fill:none;stroke:currentColor;
+  stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;
   transition:transform .22s ease;
 }
 #grip[aria-expanded="true"] svg{transform:rotate(180deg)}
 
-.field{margin-bottom:16px}
+/* ---------- the numbers ---------- */
+.readout{display:flex;align-items:baseline;gap:11px}
+.dist{
+  font-family:"Barlow Condensed",Barlow,sans-serif;
+  font-weight:700;font-size:58px;line-height:.84;letter-spacing:-.015em;
+}
+.dist span{font-size:21px;font-weight:600;color:var(--muted);margin-left:4px}
+.dur{
+  font-family:"Barlow Condensed",Barlow,sans-serif;
+  font-weight:500;font-size:26px;color:var(--muted);
+}
+.empty-line{color:var(--muted);font-size:15px;margin:2px 0 4px}
+.approach{
+  display:inline-block;margin-top:9px;padding:4px 11px;
+  border-radius:var(--pill);background:color-mix(in srgb, var(--accent) 14%, transparent);
+  color:var(--accent);font-size:13.5px;font-weight:600;
+}
+.approach:empty{display:none}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px}
+.stat{background:var(--raised);border-radius:var(--r);padding:11px 12px}
+.stat b{
+  display:block;font-family:"Barlow Condensed",Barlow,sans-serif;
+  font-weight:700;font-size:25px;line-height:1.1;
+}
+.stat i{display:block;font-style:normal;font-size:11.5px;color:var(--muted);margin-top:1px}
+
+/* ---------- candidate laps ---------- */
+#routes{display:flex;gap:7px;overflow-x:auto;padding:14px 0 2px;scrollbar-width:none}
+#routes:empty{display:none}
+#routes::-webkit-scrollbar{display:none}
+.rt{
+  flex:0 0 auto;padding:9px 15px;border:0;border-radius:var(--pill);
+  background:var(--raised);color:var(--muted);white-space:nowrap;
+  font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:600;font-size:15px;
+}
+.rt b{color:var(--ink);font-size:17px;margin-right:7px}
+.rt.on{background:var(--ink);color:var(--surface)}
+.rt.on b{color:var(--surface)}
+
+/* ---------- actions ---------- */
+.row{display:flex;gap:9px;margin-top:16px}
+.row button{
+  border:0;border-radius:var(--r);padding:16px 14px;
+  font-size:16px;font-weight:600;background:var(--raised);
+  transition:opacity .15s;
+}
+.row button[disabled]{opacity:.4}
+#go{flex:2;background:var(--ink);color:var(--surface)}
+#nav{flex:1}
+#star{flex:0 0 56px;display:flex;align-items:center;justify-content:center;padding:0}
+#star svg{width:22px;height:22px;fill:none;stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round}
+#star[aria-pressed="true"]{background:color-mix(in srgb, var(--accent) 16%, transparent)}
+#star[aria-pressed="true"] svg{fill:var(--accent);stroke:var(--accent)}
+
+/* ---------- settings ---------- */
+.field{margin-bottom:18px}
 .field label{
-  display:block;font-size:13px;color:var(--slate);margin-bottom:7px;
+  display:block;font-size:12px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:8px;
 }
 .chips{display:flex;align-items:center;gap:6px}
 .chips button{
-  flex:1;padding:12px 4px;font-size:15px;font-weight:500;
-  border:1px solid var(--hair);border-radius:3px;background:var(--panel);color:var(--slate);
+  flex:1;padding:13px 6px;border:0;border-radius:var(--pill);
+  background:var(--raised);color:var(--muted);
+  font-size:15px;font-weight:600;transition:background .15s,color .15s;
 }
-.chips button.on{
-  background:var(--ink);border-color:var(--ink);color:var(--panel);font-weight:600;
-}
-.chips .unit{
-  flex:0 0 auto;font-size:13px;color:var(--slate);padding-left:2px;
-}
+.chips button.on{background:var(--ink);color:var(--surface)}
+.chips .unit{flex:0 0 auto;font-size:12.5px;color:var(--muted);padding-left:3px}
 
-/* ---------- readout ---------- */
-.readout{display:flex;align-items:baseline;gap:10px;margin-bottom:2px}
-.dist{
-  font-family:"Barlow Condensed",Barlow,sans-serif;
-  font-weight:700;font-size:56px;line-height:.86;letter-spacing:-.01em;
+/* ---------- saved ---------- */
+details{margin:6px 0 0;border-top:1px solid var(--line);padding-top:14px}
+summary{
+  font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);cursor:pointer;list-style:none;
 }
-.dist span{font-size:22px;font-weight:600;color:var(--slate);margin-left:3px}
-.dur{
-  font-family:"Barlow Condensed",Barlow,sans-serif;
-  font-weight:500;font-size:26px;color:var(--slate);
-}
-.empty-line{color:var(--slate);font-size:15px;margin:2px 0 14px}
-.approach{color:var(--hot);font-size:14px;font-weight:500;margin-top:5px}
-.approach:empty{display:none}
-.lap-dot{
-  width:16px;height:16px;border-radius:50%;
-  background:var(--ink);border:3px solid var(--panel);
-  box-shadow:0 0 0 1px rgba(0,0,0,.25);
-}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+ "}
+details[open] summary::before{content:"\2212 "}
 
-.stats{
-  display:grid;grid-template-columns:repeat(3,1fr);
-  border-top:1px solid var(--hair);
-  margin-top:10px;
-}
-.stat{padding:10px 0 12px}
-.stat b{
-  display:block;
-  font-family:"Barlow Condensed",Barlow,sans-serif;
-  font-weight:700;font-size:25px;line-height:1.1;
-}
-.stat i{display:block;font-style:normal;font-size:12.5px;color:var(--slate)}
-
-/* ---------- candidate routes ---------- */
-#routes{
-  display:flex;gap:8px;overflow-x:auto;padding:12px 0 4px;
-  scrollbar-width:none;
-}
-#routes::-webkit-scrollbar{display:none}
-.rt{
-  flex:0 0 auto;padding:7px 13px;border:1px solid var(--hair);
-  border-radius:3px;background:var(--panel);cursor:pointer;
-  font-family:"Barlow Condensed",Barlow,sans-serif;
-  font-weight:600;font-size:16px;white-space:nowrap;color:var(--slate);
-}
-.rt b{color:var(--ink);font-size:18px;margin-right:6px}
-.rt.on{border-color:var(--ink);background:var(--ink);color:#C9CBC4}
-.rt.on b{color:var(--panel)}
-
-/* ---------- controls ---------- */
-.row{display:flex;gap:9px;margin-top:12px}
-button{
-  font-family:Barlow,sans-serif;font-size:16px;font-weight:600;
-  border-radius:3px;border:1px solid var(--ink);
-  padding:14px 16px;cursor:pointer;background:var(--panel);color:var(--ink);
-}
-button:focus-visible{outline:2px solid var(--route);outline-offset:2px}
-button[disabled]{opacity:.45;cursor:default}
-#go{flex:2;background:var(--ink);color:var(--panel)}
-#nav{flex:1}
-#star{flex:0 0 52px;padding:0;display:flex;align-items:center;justify-content:center}
-#star svg{width:21px;height:21px;fill:none;stroke:var(--ink);stroke-width:1.7;stroke-linejoin:round}
-#star[aria-pressed="true"] svg{fill:var(--hot);stroke:var(--hot)}
-#star[disabled] svg{stroke:var(--hair)}
-
-#saved-count{color:var(--slate)}
-#saved-list{margin-top:4px}
-.lap{
-  display:flex;align-items:center;gap:10px;
-  padding:11px 0;border-bottom:1px solid var(--hair);
-}
+#saved-count{color:var(--muted)}
+#saved-list{margin-top:8px;max-height:210px;overflow-y:auto}
+.lap{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)}
 .lap:last-child{border-bottom:0}
 .lap-open{
-  flex:1;min-width:0;text-align:left;border:0;background:none;padding:0;cursor:pointer;
+  flex:1;min-width:0;text-align:left;border:0;background:none;padding:0;
   font-family:Barlow,sans-serif;
 }
 .lap-name{
@@ -169,27 +191,20 @@ button[disabled]{opacity:.45;cursor:default}
   font-weight:600;font-size:18px;color:var(--ink);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
-.lap-sub{display:block;font-size:12.5px;color:var(--slate);margin-top:1px}
-.lap-acts{display:flex;gap:2px;flex:0 0 auto}
+.lap-sub{display:block;font-size:12.5px;color:var(--muted);margin-top:1px}
+.lap-acts{display:flex;gap:3px;flex:0 0 auto}
 .lap-acts button{
-  border:0;background:none;padding:7px;width:34px;height:34px;
-  font-size:15px;line-height:1;color:var(--slate);border-radius:3px;
+  border:0;background:none;width:34px;height:34px;padding:0;
+  font-size:15px;color:var(--muted);border-radius:var(--pill);
 }
-.lap-acts button.on{color:var(--hot)}
-.lap-acts button:hover{background:var(--paper);color:var(--ink)}
-#saved-empty{font-size:13.5px;color:var(--slate);margin:10px 0}
-#go.busy{background:var(--slate);border-color:var(--slate)}
+.lap-acts button.on{color:var(--accent)}
+.lap-acts button:hover{background:var(--raised);color:var(--ink)}
+#saved-empty{font-size:13.5px;color:var(--muted);margin:10px 0}
 
-details{margin:4px 0;border-top:1px solid var(--hair);padding-top:12px}
-summary{font-size:14px;color:var(--slate);cursor:pointer;list-style:none}
-summary::-webkit-details-marker{display:none}
-summary::before{content:"+ ";font-weight:600}
-details[open] summary::before{content:"− "}
-details p{font-size:13.5px;color:var(--slate);margin:10px 0}
-details a{color:var(--route)}
+#msg{font-size:14px;margin-top:12px;color:var(--muted);min-height:20px}
+#msg:empty{min-height:0;margin-top:0}
+#msg.bad{color:var(--accent)}
 
-#msg{font-size:14px;margin-top:11px;color:var(--slate);min-height:20px}
-#msg.bad{color:var(--hot)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -255,10 +270,6 @@ details a{color:var(--route)}
       </div>
     </div>
 
-    <details id="saved-box">
-      <summary>Saved laps <span id="saved-count"></span></summary>
-      <div id="saved-list"></div>
-    </details>
   </div>
 
   <div class="row">
@@ -268,6 +279,11 @@ details a{color:var(--route)}
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg>
     </button>
   </div>
+
+  <details id="saved-box" hidden>
+    <summary>Saved laps <span id="saved-count"></span></summary>
+    <div id="saved-list"></div>
+  </details>
 
   <div id="msg"></div>
 </div>
@@ -314,7 +330,7 @@ var state = {
   bounds: null          // what the drawn route spans
 };
 
-var map, startMarker, lapMarker, routeLine, ghostLine;
+var map, tiles, startMarker, lapMarker, routeLine, ghostLine;
 
 /* ---------- geometry ---------- */
 
@@ -1219,9 +1235,8 @@ function searchCircuit(km){
     }
 
     present(r.found);
-    say(graph.edges.length + " segments, " + (graph.schools||0) + " schools and "
-        + (graph.cameras||0) + " cameras marked, " + r.found.length + " laps"
-        + (r.loose ? " — none at your length, showing the closest." : "."));
+    // Nothing to say when it worked — the laps speak for themselves.
+    say(r.loose ? "Nothing at that exact length. These are the closest." : "");
   });
 }
 
@@ -1280,8 +1295,13 @@ function show(i){
   var latlngs = r.pts.map(function(p){ return [p[1], p[0]]; });
   if (routeLine) map.removeLayer(routeLine);
   if (ghostLine) map.removeLayer(ghostLine);
-  ghostLine = L.polyline(latlngs, {color:"#FDFDFC", weight:9, opacity:.9}).addTo(map);
-  routeLine = L.polyline(latlngs, {color:"#1F5FD6", weight:4.5, opacity:.95}).addTo(map);
+  var css = getComputedStyle(document.body);
+  var routeColour = css.getPropertyValue("--route").trim() || "#3D5AFE";
+  var casing = css.getPropertyValue("--surface").trim() || "#FFFFFF";
+  ghostLine = L.polyline(latlngs, {color:casing, weight:11, opacity:.95,
+                                   lineCap:"round", lineJoin:"round"}).addTo(map);
+  routeLine = L.polyline(latlngs, {color:routeColour, weight:5, opacity:1,
+                                   lineCap:"round", lineJoin:"round"}).addTo(map);
   frameRoute(routeLine.getBounds());
 
   document.getElementById("empty").hidden = true;
@@ -1296,7 +1316,7 @@ function show(i){
   if (lapMarker){ map.removeLayer(lapMarker); lapMarker = null; }
   if (away > 0.6){
     lapMarker = L.marker([r.pts[0][1], r.pts[0][0]], {
-      icon: L.divIcon({className:"", html:'<div class="lap-dot"></div>', iconSize:[16,16], iconAnchor:[8,8]})
+      icon: L.divIcon({className:"", html:'<div class="lap-dot"></div>', iconSize:[20,20], iconAnchor:[10,10]})
     }).addTo(map);
   }
 
@@ -1531,6 +1551,7 @@ function showOptions(on){
   optionsOpen = on;
   document.getElementById("pane-route").hidden = on;
   document.getElementById("pane-options").hidden = !on;
+  document.getElementById("saved-box").hidden = !on;
   var grip = document.getElementById("grip");
   grip.setAttribute("aria-expanded", on ? "true" : "false");
   document.getElementById("grip-text").textContent = on ? "Done" : "Options";
@@ -1593,17 +1614,30 @@ function setStart(lat, lng, recentre){
   state.start = {lat:lat, lng:lng};
   if (startMarker) startMarker.setLatLng([lat,lng]);
   else startMarker = L.marker([lat,lng], {
-    icon: L.divIcon({className:"", html:'<div class="start-dot"></div>', iconSize:[18,18], iconAnchor:[9,9]})
+    icon: L.divIcon({className:"", html:'<div class="start-dot"></div>', iconSize:[16,16], iconAnchor:[8,8]})
   }).addTo(map);
   if (recentre) map.setView([lat,lng], 11);
 }
 
 function init(){
   map = L.map("map", {zoomControl:false, attributionControl:true}).setView([52.4068,-1.5197], 10);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 18,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+  // The standard OSM tiles are busy and dated next to a drawn route. These are
+  // quieter, and there's a dark set for when the phone is in dark mode — which
+  // is also what you want in a car at night.
+  var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+  function tileStyle(){ return dark && dark.matches ? "dark_all" : "rastertiles/voyager"; }
+
+  tiles = L.tileLayer(
+    "https://{s}.basemaps.cartocdn.com/" + tileStyle() + "/{z}/{x}/{y}{r}.png", {
+      subdomains: "abcd", maxZoom: 19, detectRetina: true,
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    }).addTo(map);
+
+  if (dark && dark.addEventListener){
+    dark.addEventListener("change", function(){
+      tiles.setUrl("https://{s}.basemaps.cartocdn.com/" + tileStyle() + "/{z}/{x}/{y}{r}.png");
+    });
+  }
 
   window.addEventListener("load", function(){ map.invalidateSize(); });
 
