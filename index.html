@@ -450,8 +450,8 @@ var WEIGHTS = {
    Weekend mornings are peak load, which is exactly when this app gets
    opened, so the fallbacks earn their keep. */
 var OVERPASS = [
-  "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
   "https://overpass.osm.jp/api/interpreter"
 ];
 
@@ -471,7 +471,7 @@ var state = {
   mins: 60,             // how long you want to be out
   reach: 10,            // miles
   graph: null,          // road network the laps are built from
-  graphKey: "",
+  graphAt: null,        // centre and radius of the network in hand
   bounds: null          // what the drawn route spans
 };
 
@@ -750,13 +750,117 @@ function fetchArea(start, radius){
   });
 }
 
+/* ---------- keeping the road network between sessions ----------
+
+   Reading the map is the whole wait — 27s of Overpass against well under a
+   second of searching it. And the roads round your house do not change
+   between Tuesday and Wednesday, so downloading them again every time is
+   pure waste.
+
+   The graph is plain arrays and objects, so IndexedDB can store it directly
+   with no serialising. A stored area is reused when it *contains* what's being
+   asked for, not when it matches exactly — so shortening your lap or nudging
+   the start still hits the cache rather than starting over. */
+
+var DB_NAME = "backroads", DB_STORE = "areas", DB_KEEP = 4, DB_AGE = 30*86400000;
+
+function openDB(){
+  return new Promise(function(resolve, reject){
+    if (!window.indexedDB) return reject();
+    var rq = indexedDB.open(DB_NAME, 1);
+    rq.onupgradeneeded = function(){
+      var db = rq.result;
+      if (!db.objectStoreNames.contains(DB_STORE))
+        db.createObjectStore(DB_STORE, {keyPath: "id", autoIncrement: true});
+    };
+    rq.onsuccess = function(){ resolve(rq.result); };
+    rq.onerror = function(){ reject(); };
+  });
+}
+
+function dbAll(db){
+  return new Promise(function(resolve){
+    var out = [], rq = db.transaction(DB_STORE, "readonly").objectStore(DB_STORE).openCursor();
+    rq.onsuccess = function(){
+      var c = rq.result;
+      if (!c) return resolve(out);
+      out.push(c.value); c.continue();
+    };
+    rq.onerror = function(){ resolve(out); };
+  });
+}
+
+/* A stored disc is usable if the one we need sits entirely inside it. */
+function covers(rec, lat, lng, radius){
+  var ls = 111320 * Math.cos(lat * Math.PI/180);
+  var dx = (rec.lng - lng) * ls, dy = (rec.lat - lat) * 110540;
+  return Math.sqrt(dx*dx + dy*dy) + radius <= rec.radius + 1;
+}
+
+function cachedGraph(lat, lng, radius){
+  return openDB().then(function(db){
+    return dbAll(db).then(function(recs){
+      var now = Date.now(), best = null;
+      for (var i=0;i<recs.length;i++){
+        var r = recs[i];
+        if (now - r.savedAt > DB_AGE) continue;
+        if (!covers(r, lat, lng, radius)) continue;
+        if (!best || r.savedAt > best.savedAt) best = r;
+      }
+      db.close();
+      return best ? best.graph : null;
+    });
+  })["catch"](function(){ return null; });      // private mode, quota, no IDB
+}
+
+function storeGraph(lat, lng, radius, graph){
+  return openDB().then(function(db){
+    return dbAll(db).then(function(recs){
+      var tx = db.transaction(DB_STORE, "readwrite"), st = tx.objectStore(DB_STORE);
+      // Drop anything this new area already contains, plus the oldest over the cap.
+      var stale = recs.filter(function(r){
+        return Date.now() - r.savedAt > DB_AGE ||
+               covers({lat:lat, lng:lng, radius:radius}, r.lat, r.lng, r.radius);
+      });
+      stale.forEach(function(r){ st["delete"](r.id); });
+      var keep = recs.filter(function(r){ return stale.indexOf(r) < 0; })
+                     .sort(function(a,b){ return b.savedAt - a.savedAt; });
+      keep.slice(DB_KEEP - 1).forEach(function(r){ st["delete"](r.id); });
+
+      st.add({lat:lat, lng:lng, radius:radius, savedAt:Date.now(), graph:graph});
+      tx.oncomplete = function(){ db.close(); };
+    });
+  })["catch"](function(){});                     // never let a cache failure break a search
+}
+
 function breathe(){
   return new Promise(function(r){ requestAnimationFrame(function(){ setTimeout(r, 0); }); });
 }
 
 function ensureGraph(start, radius){
-  var key = "g:" + start.lat.toFixed(3)+","+start.lng.toFixed(3)+","+Math.round(radius);
-  if (state.graphKey === key && state.graph) return Promise.resolve(state.graph);
+  // Already in hand from this session?
+  if (state.graph && state.graphAt &&
+      covers({lat:state.graphAt.lat, lng:state.graphAt.lng, radius:state.graphAt.radius},
+             start.lat, start.lng, radius)) {
+    return Promise.resolve(state.graph);
+  }
+
+  say("Looking for roads already on the phone…");
+  return cachedGraph(start.lat, start.lng, radius).then(function(hit){
+    if (hit){
+      state.graph = hit;
+      state.graphAt = {lat:start.lat, lng:start.lng, radius:hit.radius || radius};
+      say("Using the roads already on your phone.");
+      return hit;
+    }
+    /* Fetch a little wider than asked. GPS never returns the same coordinates
+       twice, so without this the stored disc would miss by a few metres
+       tomorrow and every search would refetch — a cache that never hits. */
+    return fetchAndBuild(start, Math.min(34000, radius + 1200));
+  });
+}
+
+function fetchAndBuild(start, radius){
   say("Asking OpenStreetMap for the roads…");
   return fetchArea(start, radius).then(function(data){
     say("Building the road network…");
@@ -773,7 +877,9 @@ function ensureGraph(start, radius){
     g.cameras = data.cameras.length;
     g.radius = radius;               // so the walk never counts on road we didn't fetch
     g.places = data.places || [];
-    state.graph = g; state.graphKey = key;
+    state.graph = g;
+    state.graphAt = {lat:start.lat, lng:start.lng, radius:radius};
+    storeGraph(start.lat, start.lng, radius, g);   // fire and forget
     return g;
   });
 }
@@ -2420,7 +2526,6 @@ function init(){
 
   map.on("click", function(e){
     setStart(e.latlng.lat, e.latlng.lng, false);
-    state.graph = null; state.graphKey = "";
     say("Start moved. Search again from here.");
   });
 
