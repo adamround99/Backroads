@@ -545,8 +545,12 @@ function fetchRoads(start, radius){
 
 /* The whole road network inside a disc, for circuit building. */
 function fetchArea(start, radius){
-  var q = '[out:json][timeout:60];'
-        + 'way["highway"~"^(secondary|tertiary|unclassified|residential)$"]'
+  // Residential streets keep small networks joined up, but over a wide area
+  // they are most of the data and none of the driving.
+  var classes = radius > 12000 ? "secondary|tertiary|unclassified"
+                               : "secondary|tertiary|unclassified|residential";
+  var q = '[out:json][timeout:90];'
+        + 'way["highway"~"^(' + classes + ')$"]'
         + '["access"!~"private|no"]'
         + '["surface"!~"gravel|dirt|ground|unpaved"]'
         + '(around:' + Math.round(radius) + ',' + start.lat.toFixed(5) + ',' + start.lng.toFixed(5) + ');'
@@ -567,7 +571,7 @@ function ensureGraph(start, radius){
   if (state.roadsKey === key && state.graph) return Promise.resolve(state.graph);
   say("Mapping the roads around you…");
   return fetchArea(start, radius).then(function(ways){
-    var g = buildGraph(ways, 111320 * Math.cos(start.lat * Math.PI/180));
+    var g = pruneSpurs(buildGraph(ways, 111320 * Math.cos(start.lat * Math.PI/180)));
     state.graph = g; state.roadsKey = key; state.roads = null;
     return g;
   });
@@ -683,6 +687,94 @@ function buildGraph(ways, latScale){
   return {edges:edges, nodes:nodes, adj:adj, latScale:latScale};
 }
 
+/* Dead ends can never be part of a lap — you'd have to come back out the way
+   you went in. Stripping them repeatedly (removing a spur can expose another
+   behind it) leaves only road that lies on some loop, which is the difference
+   between a walk that usually fails and one that usually works. */
+function pruneSpurs(graph){
+  var alive = [], deg = {}, i, e;
+  for (i=0;i<graph.edges.length;i++) alive.push(true);
+
+  function count(){
+    deg = {};
+    for (var n=0;n<graph.edges.length;n++){
+      if (!alive[n]) continue;
+      var g = graph.edges[n];
+      deg[g.from] = (deg[g.from]||0) + 1;
+      deg[g.to] = (deg[g.to]||0) + 1;
+    }
+  }
+  count();
+
+  var changed = true;
+  while (changed){
+    changed = false;
+    for (i=0;i<graph.edges.length;i++){
+      if (!alive[i]) continue;
+      e = graph.edges[i];
+      if (e.from === e.to) continue;
+      if (deg[e.from] === 1 || deg[e.to] === 1){
+        alive[i] = false; deg[e.from]--; deg[e.to]--; changed = true;
+      }
+    }
+  }
+
+  var edges = [], adj = {}, nodes = {};
+  for (i=0;i<graph.edges.length;i++){
+    if (!alive[i]) continue;
+    e = graph.edges[i];
+    edges.push(e);
+    var k = edges.length-1;
+    if (!adj[e.from]) adj[e.from] = [];
+    if (!adj[e.to]) adj[e.to] = [];
+    adj[e.from].push(k); adj[e.to].push(k);
+    nodes[e.from] = graph.nodes[e.from];
+    nodes[e.to] = graph.nodes[e.to];
+  }
+  return {edges:edges, nodes:nodes, adj:adj, latScale:graph.latScale};
+}
+
+/* Label every separate piece of network. A lane cut off from everything else
+   by a main road is its own island, and starting on one is why a search can
+   find nothing however far you widen it. */
+function components(graph){
+  var label = {}, sizes = [], k;
+  for (k in graph.nodes){
+    if (label[k] !== undefined) continue;
+    var id = sizes.length, stack = [k], n = 0;
+    label[k] = id;
+    while (stack.length){
+      var node = stack.pop(); n++;
+      var opts = graph.adj[node] || [];
+      for (var i=0;i<opts.length;i++){
+        var e = graph.edges[opts[i]];
+        var other = e.from === node ? e.to : e.from;
+        if (label[other] === undefined){ label[other] = id; stack.push(other); }
+      }
+    }
+    sizes.push(n);
+  }
+  return {label:label, sizes:sizes};
+}
+
+/* Nearest junction that's actually part of a usable network, not the nearest
+   junction full stop. */
+function pickStart(graph, lng, lat){
+  var comp = components(graph);
+  var biggest = 0, i;
+  for (i=0;i<comp.sizes.length;i++) if (comp.sizes[i] > biggest) biggest = comp.sizes[i];
+  var floor = Math.max(25, biggest*0.15);
+
+  var best = null, bestD = Infinity;
+  for (var k in graph.nodes){
+    if (comp.sizes[comp.label[k]] < floor) continue;
+    var p = graph.nodes[k];
+    var d = (p[0]-lng)*(p[0]-lng) + (p[1]-lat)*(p[1]-lat);
+    if (d < bestD){ bestD = d; best = k; }
+  }
+  return best;
+}
+
 /* Small seeded random so a given search is repeatable. */
 function seededRandom(seed){
   var a = seed >>> 0;
@@ -695,15 +787,88 @@ function seededRandom(seed){
   };
 }
 
-/* Walk the network preferring good road, then bend back toward the start once
-   we're far enough round. Most walks fail to close — that's fine, they're
-   cheap, and we run a lot of them. */
+function Heap(){ this.a = []; }
+Heap.prototype.push = function(cost, node){
+  var a = this.a, i = a.length;
+  a.push([cost,node]);
+  while (i > 0){
+    var p = (i-1) >> 1;
+    if (a[p][0] <= a[i][0]) break;
+    var t = a[p]; a[p] = a[i]; a[i] = t; i = p;
+  }
+};
+Heap.prototype.pop = function(){
+  var a = this.a, top = a[0], last = a.pop();
+  if (a.length){
+    a[0] = last;
+    var i = 0;
+    for (;;){
+      var l = 2*i+1, r = l+1, s = i;
+      if (l < a.length && a[l][0] < a[s][0]) s = l;
+      if (r < a.length && a[r][0] < a[s][0]) s = r;
+      if (s === i) break;
+      var t = a[s]; a[s] = a[i]; a[i] = t; i = s;
+    }
+  }
+  return top;
+};
+
+/* The way back. Cheapest route home, but cheap means good road rather than
+   short road, and road already driven costs triple — so it prefers new
+   tarmac and only repeats itself when there's no reasonable alternative. */
+function wayBack(graph, from, to, used){
+  if (from === to) return [];
+  var dist = {}, prev = {}, done = {}, heap = new Heap();
+  dist[from] = 0; heap.push(0, from);
+
+  while (heap.a.length){
+    var top = heap.pop(), d = top[0], node = top[1];
+    if (done[node]) continue;
+    done[node] = 1;
+    if (node === to) break;
+
+    var opts = graph.adj[node] || [];
+    for (var i=0;i<opts.length;i++){
+      var ei = opts[i], e = graph.edges[ei];
+      if (e.oneway && e.from !== node) continue;
+      var other = e.from === node ? e.to : e.from;
+      var cost = e.metres * (used[ei] ? 3 : 1) / (0.25 + e.fun);
+      var nd = d + cost;
+      if (dist[other] === undefined || nd < dist[other]){
+        dist[other] = nd;
+        prev[other] = {ei:ei, from:node};
+        heap.push(nd, other);
+      }
+    }
+  }
+
+  if (prev[to] === undefined) return null;
+  var path = [], n = to;
+  while (n !== from){
+    var step = prev[n];
+    if (!step) return null;
+    var edge = graph.edges[step.ei];
+    path.unshift({ei:step.ei, e:edge, forward: edge.from === step.from});
+    n = step.from;
+  }
+  return path;
+}
+
+/* Head out on the best road available, then find a way home. The outward leg
+   is random so every attempt differs; the homeward leg is computed, so a lap
+   almost always closes instead of relying on a lucky junction. */
 function walkCircuit(graph, startKey, targetM, seed){
   var rnd = seededRandom(seed * 2654435761);
   var node = startKey, used = {}, path = [], total = 0;
   var home = graph.nodes[startKey], ls = graph.latScale;
+  var cap = Math.max(150, Math.min(5000, Math.round(targetM/100)));
 
-  for (var step=0; step<500; step++){
+  for (var step=0; step<cap; step++){
+    // Keep going out until getting home would finish the lap. Stopping at a
+    // fixed fraction leaves the cheap way home too short and the lap undersized.
+    var fromHome = metresBetween(graph.nodes[node], home, ls);
+    if (total + fromHome*1.5 >= targetM) break;
+
     var opts = graph.adj[node] || [], cands = [], i;
     for (i=0;i<opts.length;i++){
       var ei = opts[i];
@@ -712,32 +877,38 @@ function walkCircuit(graph, startKey, targetM, seed){
       if (e.oneway && e.from !== node) continue;
       cands.push({ei:ei, e:e, other: e.from === node ? e.to : e.from});
     }
-    if (!cands.length) return null;
+    if (!cands.length) break;
 
-    var homing = total > targetM * 0.5;
-    var here = metresBetween(graph.nodes[node], home, ls);
+    // Don't wander so far out that the way home swallows the whole lap.
+    var here = fromHome;
+    var leash = here > targetM * 0.18;
     var sum = 0;
     for (i=0;i<cands.length;i++){
       var w = Math.pow(0.04 + cands[i].e.fun, 2.4);
-      if (homing){
+      if (leash){
         var there = metresBetween(graph.nodes[cands[i].other], home, ls);
-        w *= there < here ? 4 : 0.3;
+        w *= there < here ? 3 : 0.35;
       }
       cands[i].w = w; sum += w;
     }
 
-    var pick = rnd() * sum, acc = 0, chosen = cands[cands.length-1];
+    var pick = rnd()*sum, acc = 0, chosen = cands[cands.length-1];
     for (i=0;i<cands.length;i++){ acc += cands[i].w; if (acc >= pick){ chosen = cands[i]; break; } }
 
     used[chosen.ei] = 1;
-    path.push({ei: chosen.ei, e: chosen.e, forward: chosen.e.from === node});
+    path.push({ei:chosen.ei, e:chosen.e, forward: chosen.e.from === node});
     total += chosen.e.metres;
     node = chosen.other;
-
-    if (node === startKey && total > targetM * 0.65) return {path:path, metres:total};
-    if (total > targetM * 1.3) return null;
   }
-  return null;
+
+  if (!path.length) return null;
+
+  var back = wayBack(graph, node, startKey, used);
+  if (!back) return null;
+  for (var b=0;b<back.length;b++){ path.push(back[b]); total += back[b].e.metres; }
+
+  if (total < targetM*0.65 || total > targetM*1.45) return null;
+  return {path:path, metres:total};
 }
 
 /* Stitch a circuit's segments into the same shape a routed path has, so the
@@ -846,7 +1017,7 @@ function routeThrough(key, points){
 }
 
 function findCircuits(graph, start, targetM, tries){
-  var startKey = nearestNode(graph, start.lng, start.lat);
+  var startKey = pickStart(graph, start.lng, start.lat);
   if (!startKey) return [];
   var out = [], seen = {}, t;
   for (t=0;t<tries;t++){
@@ -855,7 +1026,9 @@ function findCircuits(graph, start, targetM, tries){
     var ids = c.path.map(function(l){ return l.ei; }).sort(function(a,b){ return a-b; }).join(",");
     if (seen[ids]) continue;
     seen[ids] = 1;
-    out.push(score(circuitToPath(c)));
+    var r = score(circuitToPath(c));
+    r.total -= Math.abs(r.km*1000 - targetM)/targetM * 4;   // prefer the length asked for
+    out.push(r);
   }
   return out;
 }
@@ -881,15 +1054,15 @@ function present(found, note){
 
 function searchCircuit(km){
   var targetM = km*1000;
-  var radius = targetM/(2*Math.PI) * 1.6;
+  var radius = Math.min(28000, targetM/(2*Math.PI) * 1.5);
 
   return ensureGraph(state.start, radius).then(function(graph){
-    if (graph.edges.length < 40)
-      throw new Error("Not enough connected road around here for a circuit. Try a longer lap.");
+    if (graph.edges.length < 30)
+      throw new Error("Not enough connected road around here to build a lap. Try starting somewhere less built up.");
     say("Looking for a lap…");
-    var found = findCircuits(graph, state.start, targetM, 900);
-    present(found, "No closed lap found at that length. Try a different distance — laps need road that joins up.");
-    say(graph.edges.length + " road segments mapped, " + found.length
+    var found = findCircuits(graph, state.start, targetM, 160);
+    present(found, "Could not put a lap together at that length. Try a shorter one — long laps need a lot of joined-up lane.");
+    say(graph.edges.length + " segments mapped, " + found.length
         + " laps found. No routing credits used.");
   });
 }
