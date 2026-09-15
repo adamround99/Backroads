@@ -139,6 +139,36 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px}
 button[disabled]{opacity:.45;cursor:default}
 #go{flex:2;background:var(--ink);color:var(--panel)}
 #nav{flex:1}
+#star{flex:0 0 52px;padding:0;display:flex;align-items:center;justify-content:center}
+#star svg{width:21px;height:21px;fill:none;stroke:var(--ink);stroke-width:1.7;stroke-linejoin:round}
+#star[aria-pressed="true"] svg{fill:var(--hot);stroke:var(--hot)}
+#star[disabled] svg{stroke:var(--hair)}
+
+#saved-count{color:var(--slate)}
+#saved-list{margin-top:4px}
+.lap{
+  display:flex;align-items:center;gap:10px;
+  padding:11px 0;border-bottom:1px solid var(--hair);
+}
+.lap:last-child{border-bottom:0}
+.lap-open{
+  flex:1;min-width:0;text-align:left;border:0;background:none;padding:0;cursor:pointer;
+  font-family:Barlow,sans-serif;
+}
+.lap-name{
+  display:block;font-family:"Barlow Condensed",Barlow,sans-serif;
+  font-weight:600;font-size:18px;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.lap-sub{display:block;font-size:12.5px;color:var(--slate);margin-top:1px}
+.lap-acts{display:flex;gap:2px;flex:0 0 auto}
+.lap-acts button{
+  border:0;background:none;padding:7px;width:34px;height:34px;
+  font-size:15px;line-height:1;color:var(--slate);border-radius:3px;
+}
+.lap-acts button.on{color:var(--hot)}
+.lap-acts button:hover{background:var(--paper);color:var(--ink)}
+#saved-empty{font-size:13.5px;color:var(--slate);margin:10px 0}
 #go.busy{background:var(--slate);border-color:var(--slate)}
 
 .dial{margin-top:16px}
@@ -202,6 +232,9 @@ input[type=text]{
   <div class="row">
     <button id="go">Find a drive</button>
     <button id="nav" disabled>Navigate</button>
+    <button id="star" disabled aria-label="Save this lap" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg>
+    </button>
   </div>
   </div>
 
@@ -233,6 +266,11 @@ input[type=text]{
   </div>
 
   <div id="msg"></div>
+
+  <details id="saved-box">
+    <summary>Saved laps <span id="saved-count"></span></summary>
+    <div id="saved-list"></div>
+  </details>
 
   <details id="setup">
     <summary>Setup</summary>
@@ -1310,6 +1348,7 @@ function clearRoutes(){
   document.getElementById("readout").hidden = true;
   document.getElementById("empty").hidden = false;
   document.getElementById("nav").disabled = true;
+  syncStar();
 }
 
 function renderTabs(){
@@ -1360,7 +1399,186 @@ function show(i){
   document.getElementById("s-twisty").textContent = Math.round(r.twisty*100) + "%";
   document.getElementById("s-back").textContent = Math.round(Math.min(1, r.lap*2)*100) + "%";
   document.getElementById("nav").disabled = false;
+  syncStar();
   if (!sheet.shut) openSheet(false);
+}
+
+/* ---------- saved laps ---------- */
+
+var STORE = "backroad.laps";
+
+/* Full geometry is thousands of points per lap and browser storage is small,
+   so thin it to a point every 25m and drop the decimals nobody can see. The
+   figures are stored alongside, worked out from the full geometry, so
+   thinning costs accuracy in the drawing and none in the numbers. */
+function thin(pts, minM){
+  if (pts.length < 3) return pts.slice();
+  var ls = 111320 * Math.cos(pts[0][1] * Math.PI/180);
+  var out = [pts[0]], last = pts[0], i;
+  for (i=1;i<pts.length-1;i++){
+    var dx = (pts[i][0]-last[0])*ls, dy = (pts[i][1]-last[1])*110540;
+    if (dx*dx + dy*dy >= minM*minM){ out.push(pts[i]); last = pts[i]; }
+  }
+  out.push(pts[pts.length-1]);
+  return out.map(function(p){ return [+p[0].toFixed(5), +p[1].toFixed(5)]; });
+}
+
+function loadLaps(){
+  try { return JSON.parse(localStorage.getItem(STORE)) || []; }
+  catch(e){ return []; }
+}
+
+/* Storage fills up eventually. Drop the oldest lap that isn't a favourite
+   and try again, rather than silently losing the save. */
+function writeLaps(list){
+  for (var attempt=0; attempt<8; attempt++){
+    try { localStorage.setItem(STORE, JSON.stringify(list)); return true; }
+    catch(e){
+      var drop = -1;
+      for (var i=0;i<list.length;i++) if (!list[i].fav){ drop = i; break; }
+      if (drop < 0) return false;
+      list.splice(drop, 1);
+    }
+  }
+  return false;
+}
+
+function lapId(r){
+  var a = r.pts[0], b = r.pts[Math.floor(r.pts.length/2)];
+  return Math.round(r.km*10) + "@" + a[0].toFixed(3) + "," + a[1].toFixed(3)
+       + "/" + b[0].toFixed(3) + "," + b[1].toFixed(3);
+}
+
+function findLap(id){
+  var list = loadLaps();
+  for (var i=0;i<list.length;i++) if (list[i].id === id) return list[i];
+  return null;
+}
+
+function saveLap(r, driven){
+  var list = loadLaps(), id = lapId(r), i;
+  for (i=0;i<list.length;i++){
+    if (list[i].id !== id) continue;
+    if (driven) list[i].driven = Date.now();
+    writeLaps(list); renderSaved(); return list[i];
+  }
+  list.push({
+    id: id,
+    name: Math.round(r.km*MI) + " mile lap",
+    km: r.km, mins: r.mins, best: r.best, twisty: r.twisty, lap: r.lap,
+    approach: r.approach || 0,
+    saved: Date.now(), driven: driven ? Date.now() : null, fav: false,
+    pts: thin(r.pts, 25)
+  });
+  if (!writeLaps(list)) say("No room left to save laps. Remove a few first.", true);
+  renderSaved();
+  return findLap(id);
+}
+
+function dropLap(id){
+  var list = loadLaps(), out = [];
+  for (var i=0;i<list.length;i++) if (list[i].id !== id) out.push(list[i]);
+  writeLaps(out); renderSaved(); syncStar();
+}
+
+function editLap(id, change){
+  var list = loadLaps();
+  for (var i=0;i<list.length;i++) if (list[i].id === id) change(list[i]);
+  writeLaps(list); renderSaved();
+}
+
+function drivenWhen(ts){
+  if (!ts) return "not driven yet";
+  var days = Math.floor((Date.now() - ts)/86400000);
+  if (days <= 0) return "driven today";
+  if (days === 1) return "driven yesterday";
+  if (days < 14) return "driven " + days + " days ago";
+  if (days < 60) return "driven " + Math.round(days/7) + " weeks ago";
+  return "driven " + new Date(ts).toLocaleDateString();
+}
+
+/* Favourites first, then whatever you drove most recently. */
+function sortLaps(list){
+  return list.slice().sort(function(a,b){
+    if (a.fav !== b.fav) return a.fav ? -1 : 1;
+    if ((a.driven||0) !== (b.driven||0)) return (b.driven||0) - (a.driven||0);
+    return b.saved - a.saved;
+  });
+}
+
+function renderSaved(){
+  var list = sortLaps(loadLaps());
+  var box = document.getElementById("saved-list");
+  document.getElementById("saved-count").textContent = list.length ? "(" + list.length + ")" : "";
+  box.innerHTML = "";
+
+  if (!list.length){
+    var p = document.createElement("p");
+    p.id = "saved-empty";
+    p.textContent = "Star a lap to keep it. Anything you tap Navigate on is kept automatically.";
+    box.appendChild(p);
+    return;
+  }
+
+  list.forEach(function(e){
+    var row = document.createElement("div");
+    row.className = "lap";
+
+    var open = document.createElement("button");
+    open.className = "lap-open";
+    open.innerHTML = '<span class="lap-name"></span><span class="lap-sub"></span>';
+    open.querySelector(".lap-name").textContent = e.name;
+    open.querySelector(".lap-sub").textContent =
+      (e.best*MI).toFixed(1) + " mi best · " + Math.round(e.twisty*100) + "% cornering · " + drivenWhen(e.driven);
+    open.addEventListener("click", function(){ openLap(e); });
+
+    var acts = document.createElement("div");
+    acts.className = "lap-acts";
+
+    function act(label, title, on, fn){
+      var b = document.createElement("button");
+      b.textContent = label; b.title = title; b.setAttribute("aria-label", title);
+      if (on) b.className = "on";
+      b.addEventListener("click", fn);
+      acts.appendChild(b);
+    }
+
+    act(e.fav ? "★" : "☆", "Favourite", e.fav, function(){
+      editLap(e.id, function(x){ x.fav = !x.fav; });
+    });
+    act("✓", "Mark as driven", false, function(){
+      editLap(e.id, function(x){ x.driven = Date.now(); });
+    });
+    act("✎", "Rename", false, function(){
+      var name = prompt("Name this lap", e.name);
+      if (name) editLap(e.id, function(x){ x.name = name.slice(0,60); });
+    });
+    act("×", "Delete", false, function(){ dropLap(e.id); });
+
+    row.appendChild(open); row.appendChild(acts);
+    box.appendChild(row);
+  });
+}
+
+/* A saved lap carries its own figures, so it can be shown without
+   re-measuring anything. */
+function openLap(e){
+  state.results = [{
+    pts: e.pts, km: e.km, mins: e.mins, best: e.best, twisty: e.twisty,
+    lap: e.lap, approach: e.approach, total: 0
+  }];
+  renderTabs();
+  show(0);
+  say(e.name + " — " + drivenWhen(e.driven) + ".");
+}
+
+function syncStar(){
+  var btn = document.getElementById("star");
+  var r = state.results[state.active];
+  var on = !!(r && findLap(lapId(r)));
+  btn.disabled = !r;
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.setAttribute("aria-label", on ? "Remove from saved laps" : "Save this lap");
 }
 
 /* ---------- exports ---------- */
@@ -1372,6 +1590,9 @@ function show(i){
 function navigate(){
   var r = state.results[state.active];
   if (!r) return;
+
+  saveLap(r, true);
+  syncStar();
 
   var lapStart = r.pts[0];
   var at = lapStart[1].toFixed(5) + "," + lapStart[0].toFixed(5);
@@ -1533,6 +1754,15 @@ function init(){
   document.getElementById("go").addEventListener("click", search);
   document.getElementById("nav").addEventListener("click", navigate);
 
+  document.getElementById("star").addEventListener("click", function(){
+    var r = state.results[state.active];
+    if (!r) return;
+    var id = lapId(r);
+    if (findLap(id)) dropLap(id); else saveLap(r, false);
+    syncStar();
+  });
+
+  renderSaved();
   wireSheet();
   setTimeout(function(){ openSheet(false); map.invalidateSize(); }, 80);
 
