@@ -31,6 +31,7 @@
   --muted:#6C7671;
   --line:#E3E7E5;
   --route:#3D5AFE;        /* the drawn lap */
+  --casing:#FFFFFF;       /* drawn under the lap, to lift it off the map */
   --accent:#FF5A1F;       /* where the lap begins, favourites */
   --shadow:0 -14px 44px rgba(14,20,23,.16);
   --r:14px;
@@ -45,7 +46,10 @@
     --ink:#ECEFEE;
     --muted:#8C958F;
     --line:#282E33;
-    --route:#6E86FF;
+    /* Blue carries very little luminance, so the indigo that reads well on
+       a white map disappears on a black one. Same family, far brighter. */
+    --route:#5CC2FF;
+    --casing:#04070A;
     --accent:#FF7A47;
     --shadow:0 -14px 44px rgba(0,0,0,.55);
   }
@@ -64,6 +68,14 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
 
 /* ---------- map ---------- */
 #map{position:fixed;inset:0;background:var(--bg);z-index:1}
+
+/* Dark Matter is handsome and nearly unreadable at a glance: the road network
+   sits a few percent above black, which is fine on a desk and useless at a
+   junction. Lifting the whole tile pane keeps the palette and makes the roads
+   legible. The route is drawn in its own pane, so it isn't affected. */
+@media (prefers-color-scheme: dark){
+  .leaflet-tile-pane{filter:brightness(1.45) contrast(1.05) saturate(.88)}
+}
 .leaflet-container{font-family:Barlow,sans-serif;background:var(--bg)}
 .leaflet-control-attribution{
   font-size:9px;background:var(--surface);color:var(--muted);
@@ -89,21 +101,20 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
   max-height:70vh;overflow-y:auto;
 }
 
-#grip{
-  display:flex;align-items:center;justify-content:center;gap:7px;
-  width:auto;margin:10px auto 14px;padding:8px 18px;
-  border:0;border-radius:var(--pill);background:var(--raised);
-  font-family:"Barlow Condensed",Barlow,sans-serif;
-  font-weight:600;font-size:13px;letter-spacing:.09em;text-transform:uppercase;
-  color:var(--muted);
+/* Two views of equal standing, so the control shows both rather than hiding
+   one behind a verb. The track sits a step darker than the sheet so the
+   selected segment reads as lifted out of it. */
+#switch{
+  display:flex;gap:2px;margin:10px 0 14px;padding:3px;
+  background:var(--bg);border-radius:var(--pill);
 }
-#grip:hover{color:var(--ink)}
-#grip svg{
-  width:14px;height:14px;fill:none;stroke:currentColor;
-  stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;
-  transition:transform .22s ease;
+#switch button{
+  flex:1;border:0;border-radius:var(--pill);padding:7px 0;
+  background:transparent;color:var(--muted);
+  font-family:inherit;font-weight:600;font-size:14px;
+  transition:background .18s ease,color .18s ease;
 }
-#grip[aria-expanded="true"] svg{transform:rotate(180deg)}
+#switch button.on{background:var(--raised);color:var(--ink)}
 
 /* ---------- the numbers ---------- */
 .readout{display:flex;align-items:baseline;gap:11px}
@@ -214,6 +225,60 @@ details[open] summary::before{content:"\2212 "}
 
 /* Offline: the search button is the one thing that genuinely can't work,
    so it's the one thing that looks disabled. Everything else stays live. */
+/* The nudge to time a driven lap, and the pace readout. */
+.calib{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  background:var(--raised);border:1px solid var(--line);
+  border-radius:var(--r);padding:11px 12px;margin-bottom:10px;
+}
+.calib span{flex:1 1 140px;font-size:14px;font-weight:600;color:var(--ink)}
+.calib button{
+  border:0;border-radius:var(--pill);padding:7px 14px;
+  font-family:inherit;font-size:13px;font-weight:600;
+  background:var(--route);color:#fff;
+}
+.calib button.ghost{background:transparent;color:var(--muted)}
+#pace-note{margin:0 0 8px;font-size:14px;color:var(--muted);line-height:1.45}
+.ghost-btn{
+  border:1px solid var(--line);background:transparent;color:var(--muted);
+  border-radius:var(--pill);padding:7px 14px;
+  font-family:inherit;font-size:13px;font-weight:600;
+}
+
+/* ---------- opening screen ---------- */
+#splash{
+  position:fixed;inset:0;z-index:2000;
+  background:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  transition:opacity .34s ease;
+}
+#splash.gone{opacity:0;pointer-events:none}
+/* Failsafe: if the script never runs, this still clears the screen. */
+#splash{animation:bail .3s linear 6s forwards}
+@keyframes bail{to{opacity:0;visibility:hidden}}
+#splash svg{width:104px;height:104px;overflow:visible}
+#splash-b{
+  fill:none;stroke:var(--route);stroke-width:10.5;
+  stroke-linecap:round;stroke-linejoin:round;
+  stroke-dasharray:250;stroke-dashoffset:250;
+  animation:draw .95s cubic-bezier(.45,.05,.2,1) forwards;
+}
+#splash-dot{fill:var(--accent);opacity:0;animation:pop .3s ease .78s forwards}
+#splash p{
+  margin:0;font-family:"Barlow Condensed",Barlow,sans-serif;
+  font-weight:600;font-size:22px;letter-spacing:.20em;text-transform:uppercase;
+  color:var(--muted);opacity:0;animation:fade .45s ease .6s forwards;
+}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes pop{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:scale(1)}}
+@keyframes fade{to{opacity:1}}
+
+/* Someone who's turned motion off gets the mark, not the performance. */
+@media (prefers-reduced-motion:reduce){
+  #splash-b{animation:none;stroke-dashoffset:0}
+  #splash-dot,#splash p{animation:none;opacity:1}
+}
+
 body.offline #go{opacity:.45}
 body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 
@@ -222,15 +287,27 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 </head>
 <body>
 
+<!-- Painted before any script runs, so it covers the blank map rather than
+     appearing after it. The B is one closed path, drawn stem-first. -->
+<div id="splash">
+  <svg viewBox="0 0 100 100" aria-hidden="true">
+    <path id="splash-b" d="M31 83 L31 17 A34 16.5 0 0 1 31 50 A40 16.5 0 0 1 31 83 Z"/>
+    <circle id="splash-dot" cx="31" cy="83" r="4.8"/>
+  </svg>
+  <p>Backroads</p>
+</div>
+
 <div id="map"></div>
 
 <div id="sheet">
-  <button id="grip" type="button" aria-expanded="false" aria-controls="pane-options">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-    <span id="grip-text">Options</span>
-  </button>
+  <div id="switch" role="tablist" aria-label="Panel view">
+    <button id="tab-route" type="button" role="tab" aria-selected="true"
+            aria-controls="pane-route" class="on">Route</button>
+    <button id="tab-options" type="button" role="tab" aria-selected="false"
+            aria-controls="pane-options">Options</button>
+  </div>
 
-  <div id="pane-route">
+  <div id="pane-route" role="tabpanel" aria-labelledby="tab-route">
     <div id="readout" hidden>
       <div class="readout">
         <div class="dist" id="km">—<span>mi</span></div>
@@ -250,16 +327,15 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
     <div id="routes"></div>
   </div>
 
-  <div id="pane-options" hidden>
+  <div id="pane-options" role="tabpanel" aria-labelledby="tab-options" hidden>
     <div class="field">
-      <label>Lap length</label>
-      <div class="chips" id="km-chips">
-        <button data-v="10">10</button>
-        <button data-v="15" class="on">15</button>
-        <button data-v="20">20</button>
-        <button data-v="30">30</button>
-        <button data-v="50">50</button>
-        <span class="unit">miles</span>
+      <label>How long you want to be out</label>
+      <div class="chips" id="mins-chips">
+        <button data-v="30">30m</button>
+        <button data-v="45">45m</button>
+        <button data-v="60" class="on">1h</button>
+        <button data-v="90">1h30</button>
+        <button data-v="120">2h</button>
       </div>
     </div>
 
@@ -280,6 +356,12 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
         <button data-v="tight" class="on">Tight and technical</button>
         <button data-v="flowing">Fast and flowing</button>
       </div>
+    </div>
+
+    <div class="field">
+      <label>Pace</label>
+      <p id="pace-note"></p>
+      <button id="pace-reset" class="ghost-btn" hidden>Forget my timings</button>
     </div>
 
   </div>
@@ -348,7 +430,7 @@ var state = {
   results: [],
   active: -1,
   style: "tight",
-  km: 15,               // miles
+  mins: 60,             // how long you want to be out
   reach: 10,            // miles
   graph: null,          // road network the laps are built from
   graphKey: "",
@@ -534,7 +616,8 @@ function score(path){
     pts: pts,
     prep: prep,
     km: km,
-    mins: Math.round(path.time/60000),
+    rawMins: Math.round(path.time/60000),                   // what the model says
+    mins: Math.round(path.time/60000 * paceFactor()),       // corrected by your drives
     twisty: st.twisty,
     best: st.best,
     climb: climb(pts),
@@ -678,6 +761,71 @@ function speedFactor(tags){
   return 1.15;
 }
 
+/* ---------- how long a stretch actually takes ----------
+
+   Distance is a poor proxy for a drive. An hour of lanes and an hour of
+   open B road are nowhere near the same number of miles, which is why
+   asking for "15 miles" gave such inconsistent drives.
+
+   Three things cap your speed at any point: the limit, how tight the bend
+   is, and how wide the road is. A car can't jump between those caps, so
+   the caps are run through a forward pass (you can only accelerate so
+   hard) and a backward pass (you have to brake into the corner). That
+   second pass is the important one — it's why a single hairpin costs far
+   more than its own length, which a simple average can never capture. */
+
+var TURN_ALLOW = 2.5;   // rough per-junction cost while the walk is still steering
+var A_ACC = 1.8;    // m/s², brisk but not flat out
+var A_DEC = 2.6;    // m/s², comfortable braking on a road you don't know
+var A_LAT = 3.8;    // m/s², about 0.39g — spirited, still public-road sane
+
+/* Practical speed by road class, whatever the limit says. A national-limit
+   single-track lane is still a 35mph road, because you can't see round it. */
+var CLASS_SPEED = {
+  motorway: 31, trunk: 29, primary: 27, secondary: 24,
+  tertiary: 21, unclassified: 16, residential: 10,
+  living_street: 5, service: 7, track: 6
+};
+
+function legalSpeed(tags){
+  var v = tags.maxspeed;
+  if (!v) return null;
+  var m = /(\d+)/.exec(v);
+  if (!m) return null;
+  var n = +m[1];
+  return /mph/i.test(v) ? n * 0.44704 : n / 3.6;
+}
+
+function edgeSeconds(prep, tags){
+  var xy = prep.xy, n = xy.length;
+  if (n < 2) return prep.metres / 15;
+
+  var legal = legalSpeed(tags);
+  if (legal === null) legal = tags.lit === "yes" ? 13.4 : 26.8;   // 30 / national
+  var cap = CLASS_SPEED[tags.highway] !== undefined ? CLASS_SPEED[tags.highway] : 18;
+  var ceiling = Math.min(legal, cap);
+  if (tags.traffic_calming) ceiling = Math.min(ceiling, 9);
+
+  var v = new Array(n), i;
+  for (i=0;i<n;i++){
+    var r = (i > 0 && i < n-1) ? radiusAt(xy[i-1], xy[i], xy[i+1]) : Infinity;
+    v[i] = Math.min(ceiling, isFinite(r) ? Math.sqrt(A_LAT * r) : Infinity);
+  }
+  for (i=1;i<n;i++)    v[i] = Math.min(v[i], Math.sqrt(v[i-1]*v[i-1] + 2*A_ACC*STEP));
+  for (i=n-2;i>=0;i--) v[i] = Math.min(v[i], Math.sqrt(v[i+1]*v[i+1] + 2*A_DEC*STEP));
+
+  var t = 0;
+  for (i=1;i<n;i++) t += STEP / Math.max((v[i-1] + v[i]) / 2, 2);
+  if (tags.junction === "roundabout") t += 5;
+  return t;
+}
+
+/* Turning off one road onto another costs time the straight-line profile
+   can't see. Straight on is free; a hairpin left is most of a standstill. */
+function turnSeconds(turn){
+  return 7 * (1 - Math.cos(turn)) / 2;
+}
+
 function roadQuality(tags, schoolShare, cameraShare){
   var q = CLASS_WEIGHT[tags.highway] !== undefined ? CLASS_WEIGHT[tags.highway] : 0.6;
   q *= speedFactor(tags);
@@ -803,6 +951,7 @@ function buildGraph(ways, latScale, schools, cameras){
         sev = st.radii.length ? sev/st.radii.length : 0;
         var q = roadQuality(tags, hazardShare(schools, pts), hazardShare(cameras, pts));
         edges.push({from:a, to:b, pts:pts, metres:prep.metres, fun:sev, quality:q,
+                    secs: edgeSeconds(prep, tags),
                     oneway:(one||rev), cls:tags.highway || "unclassified",
                     name: tags.name || tags.ref || "",
                     b0: endBearing(pts, true, latScale),
@@ -813,7 +962,14 @@ function buildGraph(ways, latScale, schools, cameras){
       from = k; run = [p];
     }
   }
-  return {edges:edges, nodes:nodes, adj:adj, latScale:latScale};
+  /* Typical pace across this area's roads. Used only to judge how far out
+     the walk can afford to wander before the way home eats the whole lap —
+     the lap's real duration comes from the segments actually chosen. */
+  var tm = 0, ts = 0;
+  for (var c=0;c<edges.length;c++){ tm += edges[c].metres; ts += edges[c].secs; }
+  var cruise = ts > 0 ? tm/ts : 15;
+
+  return {edges:edges, nodes:nodes, adj:adj, latScale:latScale, cruise:cruise};
 }
 
 /* Dead ends can never be part of a lap — you'd have to come back out the way
@@ -860,7 +1016,7 @@ function pruneSpurs(graph){
     nodes[e.from] = graph.nodes[e.from];
     nodes[e.to] = graph.nodes[e.to];
   }
-  return {edges:edges, nodes:nodes, adj:adj, latScale:graph.latScale};
+  return {edges:edges, nodes:nodes, adj:adj, latScale:graph.latScale, cruise:graph.cruise};
 }
 
 /* OpenStreetMap splits one road into several ways wherever a tag changes, so
@@ -911,6 +1067,7 @@ function mergeChains(graph, maxM){
       from: aFrom, to: bTo,
       pts: apts.concat(bpts.slice(1)),
       metres: m,
+      secs: a.secs + b.secs,
       fun: (a.fun*a.metres + b.fun*b.metres)/m,
       quality: (a.quality*a.metres + b.quality*b.metres)/m,
       oneway: a.oneway,
@@ -942,7 +1099,7 @@ function mergeChains(graph, maxM){
     nodes[e.from] = graph.nodes[e.from];
     nodes[e.to] = graph.nodes[e.to];
   }
-  return {edges:out, nodes:nodes, adj:adj2, latScale:graph.latScale};
+  return {edges:out, nodes:nodes, adj:adj2, latScale:graph.latScale, cruise:graph.cruise};
 }
 
 /* Label every separate piece of network. A lane cut off from everything else
@@ -1137,11 +1294,13 @@ function wayBack(graph, from, to, used){
 /* Head out on the best road available, then find a way home. The outward leg
    is random so every attempt differs; the homeward leg is computed, so a lap
    almost always closes instead of relying on a lucky junction. */
-function walkCircuit(graph, startKey, targetM, seed){
+function walkCircuit(graph, startKey, targetS, seed){
   var rnd = seededRandom(seed * 2654435761);
   var node = startKey, used = {}, path = [], total = 0;
   var home = graph.nodes[startKey], ls = graph.latScale;
-  var cap = Math.max(150, Math.min(5000, Math.round(targetM/100)));
+  var cruise = graph.cruise || 15;
+  var targetM = targetS * cruise;        // rough distance equivalent, for the leash
+  var cap = Math.max(150, Math.min(5000, Math.round(targetS/2)));
 
   var inbound = null, road = "";
 
@@ -1149,7 +1308,7 @@ function walkCircuit(graph, startKey, targetM, seed){
     // Keep going out until getting home would finish the lap. Stopping at a
     // fixed fraction leaves the cheap way home too short and the lap undersized.
     var fromHome = metresBetween(graph.nodes[node], home, ls);
-    if (total + fromHome*1.5 >= targetM) break;
+    if (total + (fromHome/cruise)*1.5 >= targetS) break;
 
     var opts = graph.adj[node] || [], cands = [], i;
     for (i=0;i<opts.length;i++){
@@ -1184,7 +1343,7 @@ function walkCircuit(graph, startKey, targetM, seed){
 
     used[chosen.ei] = 1;
     path.push({ei:chosen.ei, e:chosen.e, forward: chosen.e.from === node});
-    total += chosen.e.metres;
+    total += chosen.e.secs + TURN_ALLOW;
     inbound = (leaving(chosen.e, chosen.other) + 180) % 360;   // how you arrive
     road = chosen.e.name;
     node = chosen.other;
@@ -1194,25 +1353,38 @@ function walkCircuit(graph, startKey, targetM, seed){
 
   var back = wayBack(graph, node, startKey, used);
   if (!back) return {fail:"noway"};
-  for (var b=0;b<back.length;b++){ path.push(back[b]); total += back[b].e.metres; }
+  for (var b=0;b<back.length;b++){ path.push(back[b]); total += back[b].e.secs + TURN_ALLOW; }
 
-  return {path:path, metres:total,
-          onTarget: total >= targetM*0.65 && total <= targetM*1.45};
+  /* Approximate — steering only. The exact duration, including every turn,
+     is computed in circuitToPath once the lap is fixed. */
+  return {path:path, secs:total};
 }
 
 /* Stitch a circuit's segments into the same shape a routed path has, so the
    scoring and display don't need to know where it came from. */
 function circuitToPath(circuit){
-  var coords = [], road = [], time = 0;
+  var coords = [], road = [], secs = 0, metres = 0, prevOut = null;
   for (var i=0;i<circuit.path.length;i++){
     var leg = circuit.path[i], pts = leg.forward ? leg.e.pts : leg.e.pts.slice().reverse();
     var at = coords.length;
     for (var n = (i === 0 ? 0 : 1); n<pts.length; n++) coords.push(pts[n]);
     road.push([at ? at-1 : 0, coords.length-1, leg.e.cls]);
-    var kmh = Math.max(25, 70 - 45*leg.e.fun);      // tighter road, slower going
-    time += (leg.e.metres / (kmh/3.6)) * 1000;
+
+    // Time to drive the stretch, plus the time lost turning onto it.
+    secs += leg.e.secs;
+    metres += leg.e.metres;
+    var into = leg.forward ? leg.e.b0 : (leg.e.b1 + 180) % 360;
+    if (prevOut !== null) secs += turnSeconds(turnFrom(prevOut, into) * Math.PI/180);
+    prevOut = leg.forward ? leg.e.b1 : (leg.e.b0 + 180) % 360;
   }
-  return {points:{coordinates:coords}, distance:circuit.metres, time:time,
+  // Closing the loop is a turn too.
+  if (circuit.path.length > 1 && prevOut !== null){
+    var first = circuit.path[0];
+    var back = first.forward ? first.e.b0 : (first.e.b1 + 180) % 360;
+    secs += turnSeconds(turnFrom(prevOut, back) * Math.PI/180);
+  }
+
+  return {points:{coordinates:coords}, distance:metres, time:secs*1000,
           details:{road_class:road}};
 }
 
@@ -1226,7 +1398,7 @@ function nearestNode(graph, lng, lat){
   return best;
 }
 
-function findCircuits(graph, start, targetM, reachM, tries){
+function findCircuits(graph, start, targetS, reachM, tries){
   var picked = pickStarts(graph, start.lng, start.lat, reachM, 8);
   var diag = {parts: picked.parts, biggest: picked.biggest,
               starts: picked.starts.length, stuck:0, noway:0, closed:0};
@@ -1234,11 +1406,14 @@ function findCircuits(graph, start, targetM, reachM, tries){
 
   var on = [], off = [], seen = {}, s, t;
   var each = Math.max(12, Math.round(tries/picked.starts.length));
+  /* The walk reasons in raw model seconds, so the target it chases has to be
+     un-corrected first; the comparison afterwards uses corrected time. */
+  var walkTarget = targetS / paceFactor();
 
   for (s=0;s<picked.starts.length;s++){
     var from = picked.starts[s];
     for (t=0;t<each;t++){
-      var c = walkCircuit(graph, from.key, targetM, s*1000 + t + 1);
+      var c = walkCircuit(graph, from.key, walkTarget, s*1000 + t + 1);
       if (!c) continue;
       if (c.fail){ diag[c.fail]++; continue; }
       diag.closed++;
@@ -1247,11 +1422,17 @@ function findCircuits(graph, start, targetM, reachM, tries){
       if (seen[ids]) continue;
       seen[ids] = 1;
 
-      var r = score(circuitToPath(c));
+      var path = circuitToPath(c);
+      var secs = (path.time/1000) * paceFactor();
+      var r = score(path);
       r.approach = from.away;
-      r.total -= Math.abs(r.km*1000 - targetM)/targetM * 4;    // prefer the length asked for
-      r.total -= (from.away/1000) * 0.25;                      // and a shorter drive out
-      if (c.onTarget) on.push(r); else off.push(r);
+      /* Being over the time asked for is worse than being under it — an hour
+         means an hour, and a lap that quietly runs to ninety minutes is a
+         broken promise rather than a bonus. */
+      var off_ = (secs - targetS)/targetS;
+      r.total -= (off_ > 0 ? off_*7 : -off_*4);
+      r.total -= (from.away/1000) * 0.25;                      // shorter drive out
+      if (secs >= targetS*0.75 && secs <= targetS*1.25) on.push(r); else off.push(r);
     }
   }
 
@@ -1277,16 +1458,20 @@ function present(found, note){
   show(0);
 }
 
-function searchCircuit(km){
-  var targetM = km*1000;
+function searchCircuit(mins){
+  var targetS = mins * 60;
   var reachM = state.reach / MI * 1000;
-  var radius = Math.min(34000, targetM/(2*Math.PI) * 1.5 + reachM);
+  /* How much map to fetch. The real pace isn't known until the roads are in
+     hand, so assume a brisk 45mph for sizing — too generous is a slower
+     query, too mean is a lap that can't reach far enough to exist. */
+  var reckonM = targetS * 20;
+  var radius = Math.min(34000, reckonM/(2*Math.PI) * 1.5 + reachM);
 
   return ensureGraph(state.start, radius).then(function(graph){
     if (graph.edges.length < 30)
       throw new Error("Not enough connected road around here to build a lap. Try starting somewhere less built up.");
     say("Looking for a lap…");
-    var r = findCircuits(graph, state.start, targetM, reachM, 200);
+    var r = findCircuits(graph, state.start, targetS, reachM, 200);
     var d = r.diag;
 
     if (!r.found.length){
@@ -1298,19 +1483,25 @@ function searchCircuit(km){
 
     present(r.found);
     // Nothing to say when it worked — the laps speak for themselves.
-    say(r.loose ? "Nothing at that exact length. These are the closest." : "");
+    say(r.loose ? "Nothing at that length. These are the closest." : "");
   });
 }
 
 function search(){
   if (!state.start){ say("Waiting for your location. Tap the map to pick a start instead.", true); return; }
   begin();
-  searchCircuit(state.km / MI)
+  searchCircuit(state.mins)
     .catch(function(err){ say(err.message, true); })
     .then(finish);
 }
 
 /* ---------- display ---------- */
+
+function clock(mins){
+  var h = Math.floor(mins/60), m = Math.round(mins%60);
+  if (m === 60){ h++; m = 0; }
+  return h ? (h + "h" + (m ? (m<10?"0":"") + m : "")) : (m + "m");
+}
 
 function say(text, bad){
   var el = document.getElementById("msg");
@@ -1340,7 +1531,7 @@ function renderTabs(){
   state.results.forEach(function(r, i){
     var b = document.createElement("button");
     b.className = "rt";
-    b.innerHTML = "<b>" + Math.round(r.km*MI) + "mi</b>" + (r.best*MI).toFixed(1) + "mi best";
+    b.innerHTML = "<b>" + clock(r.mins) + "</b>" + Math.round(r.km*MI) + "mi";
     b.addEventListener("click", function(){ show(i); });
     box.appendChild(b);
   });
@@ -1361,18 +1552,17 @@ function show(i){
   if (ghostLine) map.removeLayer(ghostLine);
   var css = getComputedStyle(document.body);
   var routeColour = css.getPropertyValue("--route").trim() || "#3D5AFE";
-  var casing = css.getPropertyValue("--surface").trim() || "#FFFFFF";
-  ghostLine = L.polyline(latlngs, {color:casing, weight:11, opacity:.95,
+  var casing = css.getPropertyValue("--casing").trim() || "#FFFFFF";
+  ghostLine = L.polyline(latlngs, {color:casing, weight:13, opacity:1,
                                    lineCap:"round", lineJoin:"round"}).addTo(map);
-  routeLine = L.polyline(latlngs, {color:routeColour, weight:5, opacity:1,
+  routeLine = L.polyline(latlngs, {color:routeColour, weight:6, opacity:1,
                                    lineCap:"round", lineJoin:"round"}).addTo(map);
   frameRoute(routeLine.getBounds());
 
   document.getElementById("empty").hidden = true;
   document.getElementById("readout").hidden = false;
   document.getElementById("km").innerHTML = Math.round(r.km*MI) + "<span>mi</span>";
-  document.getElementById("dur").textContent =
-    Math.floor(r.mins/60) + "h " + String(r.mins%60).padStart(2,"0");
+  document.getElementById("dur").textContent = clock(r.mins);
   var away = (r.approach || 0) * MI / 1000;
   document.getElementById("approach").textContent =
     away > 0.6 ? "Lap starts " + away.toFixed(away < 10 ? 1 : 0) + " miles away" : "";
@@ -1396,6 +1586,51 @@ function show(i){
 /* ---------- saved laps ---------- */
 
 var STORE = "backroad.laps";
+var PACE_STORE = "backroads.pace";
+
+/* ---------- calibration ----------
+
+   The speed model is physics plus assumptions about how briskly you drive.
+   The physics is sound; the assumptions are guesses. So rather than leave
+   them as constants only I can edit, the app learns them: tell it how long
+   a lap actually took and it corrects every estimate afterwards.
+
+   Kept separate from the laps themselves, because deleting a lap shouldn't
+   throw away what it taught the app. Ratios are actual/predicted, so above
+   1 means you're slower than it reckoned. */
+
+var paceCache = null;
+
+function paceSamples(){
+  try { return JSON.parse(localStorage.getItem(PACE_STORE)) || []; }
+  catch(e){ return []; }
+}
+
+function addPaceSample(ratio){
+  var s = paceSamples();
+  s.push(Math.round(ratio*1000)/1000);
+  if (s.length > 10) s = s.slice(s.length-10);      // recent drives only
+  try { localStorage.setItem(PACE_STORE, JSON.stringify(s)); } catch(e){}
+  paceCache = null;
+}
+
+function clearPace(){
+  try { localStorage.removeItem(PACE_STORE); } catch(e){}
+  paceCache = null;
+}
+
+/* Median, not mean: one drive where you stopped for fuel shouldn't drag
+   every future estimate with it. Clamped, because a mistyped number
+   shouldn't be able to break the app's sense of time either. */
+function paceFactor(){
+  if (paceCache !== null) return paceCache;
+  var s = paceSamples();
+  if (!s.length) return (paceCache = 1);
+  var v = s.slice().sort(function(a,b){ return a-b; });
+  var m = Math.floor(v.length/2);
+  var med = v.length % 2 ? v[m] : (v[m-1] + v[m])/2;
+  return (paceCache = Math.min(1.8, Math.max(0.6, med)));
+}
 
 /* Full geometry is thousands of points per lap and browser storage is small,
    so thin it to a point every 25m and drop the decimals nobody can see. The
@@ -1455,7 +1690,7 @@ function saveLap(r, driven){
   list.push({
     id: id,
     name: Math.round(r.km*MI) + " mile lap",
-    km: r.km, mins: r.mins, best: r.best, twisty: r.twisty, lap: r.lap,
+    km: r.km, mins: r.mins, rawMins: r.rawMins || r.mins, best: r.best, twisty: r.twisty, lap: r.lap,
     approach: r.approach || 0,
     saved: Date.now(), driven: driven ? Date.now() : null, fav: false,
     pts: thin(r.pts, 25)
@@ -1496,6 +1731,58 @@ function sortLaps(list){
   });
 }
 
+/* Asking for the actual time. A plain prompt is right here: it's one number,
+   typed once, standing still — not something to build a dial for. */
+function askActual(e){
+  var est = e.rawMins || e.mins;
+  var said = prompt("How long did \"" + e.name + "\" take, in minutes?\n\n" +
+                    "It estimated " + clock(est) + ". Round to the nearest five.", "");
+  if (said === null) return;                       // cancelled, ask again next time
+  var mins = parseInt(String(said).replace(/[^0-9]/g, ""), 10);
+  if (!mins || mins < 5 || mins > 600){
+    say("That didn't look like a number of minutes.", true);
+    return;
+  }
+  editLap(e.id, function(x){ x.actual = mins; });
+  addPaceSample(mins / Math.max(est, 1));
+  var off = Math.round((paceFactor() - 1) * 100);
+  say(off === 0 ? "Spot on. Estimates unchanged."
+    : "Noted. Estimates now run " + Math.abs(off) + "% " +
+      (off > 0 ? "longer" : "shorter") + " to match you.");
+  renderPace();
+  renderSaved();
+}
+
+/* A lap you've driven but never timed is the one thing worth nudging about,
+   because it's the only way the estimates ever improve. */
+function pendingLap(list){
+  for (var i=0;i<list.length;i++){
+    var e = list[i];
+    if (e.driven && !e.actual && e.actual !== -1 && (e.rawMins || e.mins)) return e;
+  }
+  return null;
+}
+
+function renderPace(){
+  var note = document.getElementById("pace-note");
+  var reset = document.getElementById("pace-reset");
+  if (!note) return;
+  var n = paceSamples().length;
+  if (!n){
+    note.textContent = "Estimates come from road shape and speed limits alone. " +
+      "Time a lap you've driven and they'll adjust to how you actually drive.";
+    reset.hidden = true;
+    return;
+  }
+  var off = Math.round((paceFactor() - 1) * 100);
+  note.textContent = (off === 0
+      ? "Matching your drives exactly"
+      : "Estimates run " + Math.abs(off) + "% " + (off > 0 ? "longer" : "shorter") +
+        " than the road shape alone suggests")
+    + ", from " + n + (n === 1 ? " timed lap." : " timed laps.");
+  reset.hidden = false;
+}
+
 function renderSaved(){
   var list = sortLaps(loadLaps());
   var box = document.getElementById("saved-list");
@@ -1510,6 +1797,25 @@ function renderSaved(){
     return;
   }
 
+  var waiting = pendingLap(list);
+  if (waiting){
+    var card = document.createElement("div");
+    card.className = "calib";
+    var q = document.createElement("span");
+    q.textContent = "How long did \u201C" + waiting.name + "\u201D actually take?";
+    var yes = document.createElement("button");
+    yes.textContent = "Tell it";
+    yes.addEventListener("click", function(){ askActual(waiting); });
+    var no = document.createElement("button");
+    no.className = "ghost";
+    no.textContent = "Skip";
+    no.addEventListener("click", function(){
+      editLap(waiting.id, function(x){ x.actual = -1; });
+    });
+    card.appendChild(q); card.appendChild(yes); card.appendChild(no);
+    box.appendChild(card);
+  }
+
   list.forEach(function(e){
     var row = document.createElement("div");
     row.className = "lap";
@@ -1519,7 +1825,10 @@ function renderSaved(){
     open.innerHTML = '<span class="lap-name"></span><span class="lap-sub"></span>';
     open.querySelector(".lap-name").textContent = e.name;
     open.querySelector(".lap-sub").textContent =
-      (e.best*MI).toFixed(1) + " mi best · " + Math.round(e.twisty*100) + "% cornering · " + drivenWhen(e.driven);
+      (e.best*MI).toFixed(1) + " mi best · " + Math.round(e.twisty*100) + "% cornering · " +
+      (e.actual > 0
+        ? "took " + clock(e.actual) + ", est " + clock(e.rawMins || e.mins)
+        : drivenWhen(e.driven));
     open.addEventListener("click", function(){ openLap(e); });
 
     var acts = document.createElement("div");
@@ -1538,6 +1847,9 @@ function renderSaved(){
     });
     act("✓", "Mark as driven", false, function(){
       editLap(e.id, function(x){ x.driven = Date.now(); });
+    });
+    if (e.driven) act("⏱", "How long did it take?", e.actual > 0, function(){
+      askActual(e);
     });
     act("✎", "Rename", false, function(){
       var name = prompt("Name this lap", e.name);
@@ -1616,9 +1928,12 @@ function showOptions(on){
   document.getElementById("pane-route").hidden = on;
   document.getElementById("pane-options").hidden = !on;
   document.getElementById("saved-box").hidden = !on;
-  var grip = document.getElementById("grip");
-  grip.setAttribute("aria-expanded", on ? "true" : "false");
-  document.getElementById("grip-text").textContent = on ? "Done" : "Options";
+  var rt = document.getElementById("tab-route");
+  var op = document.getElementById("tab-options");
+  rt.className = on ? "" : "on";
+  op.className = on ? "on" : "";
+  rt.setAttribute("aria-selected", on ? "false" : "true");
+  op.setAttribute("aria-selected", on ? "true" : "false");
   setTimeout(function(){ if (map) map.invalidateSize(); reframe(); }, 30);
 }
 
@@ -1643,8 +1958,11 @@ function reframe(){
 }
 
 function wireSheet(){
-  document.getElementById("grip").addEventListener("click", function(){
-    showOptions(!optionsOpen);
+  document.getElementById("tab-route").addEventListener("click", function(){
+    showOptions(false);
+  });
+  document.getElementById("tab-options").addEventListener("click", function(){
+    showOptions(true);
   });
 
   var settle;
@@ -1713,7 +2031,7 @@ function init(){
     say("Start moved. Search again from here.");
   });
 
-  wireChips("km-chips", 0, function(v){ state.km = +v; });
+  wireChips("mins-chips", 0, function(v){ state.mins = +v; });
   wireChips("reach-chips", 0, function(v){ state.reach = +v; });
   wireChips("style-chips", 0, function(v){
     state.style = v;
@@ -1729,6 +2047,14 @@ function init(){
     var id = lapId(r);
     if (findLap(id)) dropLap(id); else saveLap(r, false);
     syncStar();
+  });
+
+  renderPace();
+  document.getElementById("pace-reset").addEventListener("click", function(){
+    if (!confirm("Forget your timings and go back to the default estimates?")) return;
+    clearPace();
+    renderPace(); renderSaved();
+    say("Timings cleared.");
   });
 
   renderSaved();
@@ -1788,6 +2114,31 @@ function wireWakeLock(){
   });
 }
 
+/* Hold the opening screen just long enough to finish drawing, then get out of
+   the way. It never blocks: if something below is slow, the deadline wins. */
+function wireSplash(){
+  var el = document.getElementById("splash");
+  if (!el) return;
+  var born = Date.now();
+  var done = false;
+
+  function dismiss(){
+    if (done) return;
+    done = true;
+    el.classList.add("gone");
+    setTimeout(function(){ el.style.display = "none"; }, 380);
+  }
+
+  function ready(){
+    var held = Date.now() - born;
+    setTimeout(dismiss, Math.max(0, 1150 - held));   // let the B finish
+  }
+
+  if (document.readyState === "complete") ready();
+  else window.addEventListener("load", ready);
+  setTimeout(dismiss, 3500);                          // never trap anyone
+}
+
 function wireServiceWorker(){
   if (!("serviceWorker" in navigator)) return;
   window.addEventListener("load", function(){
@@ -1799,6 +2150,7 @@ function wireServiceWorker(){
 }
 
 init();
+wireSplash();
 wireConnection();
 wireWakeLock();
 wireServiceWorker();
