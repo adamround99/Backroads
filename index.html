@@ -158,18 +158,18 @@ input[type=text]{
 
   <div id="readout" hidden>
     <div class="readout">
-      <div class="dist" id="km">—<span>km</span></div>
+      <div class="dist" id="km">—<span>mi</span></div>
       <div class="dur" id="dur"></div>
     </div>
     <svg id="profile" viewBox="0 0 320 44" preserveAspectRatio="none" aria-label="Corner severity along the route"></svg>
     <div class="stats">
-      <div class="stat"><b id="s-run">—</b><i>km best stretch</i></div>
+      <div class="stat"><b id="s-run">—</b><i>miles best stretch</i></div>
       <div class="stat"><b id="s-twisty">—</b><i>of it cornering</i></div>
       <div class="stat"><b id="s-back">—</b><i>doubling back</i></div>
     </div>
   </div>
 
-  <p class="empty-line" id="empty">Find a loop that starts and finishes where you are.</p>
+  <p class="empty-line" id="empty">Find a lap you can drive round and round.</p>
 
   <div id="routes"></div>
 
@@ -180,8 +180,16 @@ input[type=text]{
   </div>
 
   <div class="dial">
-    <div class="dial-head"><label for="km-range">Loop length</label><output id="km-out">80 km</output></div>
-    <input type="range" id="km-range" min="20" max="200" step="5" value="80">
+    <div class="dial-head"><label for="km-range" id="km-label">Lap length</label><output id="km-out">15 miles</output></div>
+    <input type="range" id="km-range" min="5" max="125" step="1" value="15">
+  </div>
+
+  <div class="dial">
+    <div class="dial-head"><label>Shape</label></div>
+    <div class="seg" id="mode-seg">
+      <button data-mode="circuit" class="on">Circuit to lap</button>
+      <button data-mode="tour">Tour to ride out</button>
+    </div>
   </div>
 
   <div class="dial">
@@ -240,11 +248,15 @@ var WEIGHTS = {
    resource, so ask once per area and remember the answer. */
 var OVERPASS = "https://overpass-api.de/api/interpreter";
 
+var MI = 0.621371;   // everything is measured in metres and shown in miles
+
 var state = {
   start: null,          // {lat, lng}
   results: [],
   active: -1,
   style: "tight",
+  mode: "circuit",
+  graph: null,          // road network for circuit building
   roads: null,          // measured roads around the current ring
   roadsKey: "",
   credits: null,        // read back from the routing response when offered
@@ -531,12 +543,42 @@ function fetchRoads(start, radius){
   });
 }
 
+/* The whole road network inside a disc, for circuit building. */
+function fetchArea(start, radius){
+  var q = '[out:json][timeout:60];'
+        + 'way["highway"~"^(secondary|tertiary|unclassified|residential)$"]'
+        + '["access"!~"private|no"]'
+        + '["surface"!~"gravel|dirt|ground|unpaved"]'
+        + '(around:' + Math.round(radius) + ',' + start.lat.toFixed(5) + ',' + start.lng.toFixed(5) + ');'
+        + 'out geom;';
+  return fetch(OVERPASS, {
+    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:"data=" + encodeURIComponent(q)
+  }).then(function(r){
+    if (r.status === 429 || r.status === 504)
+      throw new Error("OpenStreetMap's query service is busy. Wait a minute and try again.");
+    if (!r.ok) throw new Error("Could not read the road network (" + r.status + ").");
+    return r.json();
+  }).then(function(j){ return j.elements || []; });
+}
+
+function ensureGraph(start, radius){
+  var key = "g:" + start.lat.toFixed(3)+","+start.lng.toFixed(3)+","+Math.round(radius);
+  if (state.roadsKey === key && state.graph) return Promise.resolve(state.graph);
+  say("Mapping the roads around you…");
+  return fetchArea(start, radius).then(function(ways){
+    var g = buildGraph(ways, 111320 * Math.cos(start.lat * Math.PI/180));
+    state.graph = g; state.roadsKey = key; state.roads = null;
+    return g;
+  });
+}
+
 function ensureRoads(start, radius){
   var key = start.lat.toFixed(3)+","+start.lng.toFixed(3)+","+Math.round(radius);
   if (state.roadsKey === key && state.roads) return Promise.resolve(state.roads);
   say("Reading the road network…");
   return fetchRoads(start, radius).then(function(roads){
-    state.roads = roads; state.roadsKey = key;
+    state.roads = roads; state.roadsKey = key; state.graph = null;
     return roads;
   });
 }
@@ -574,6 +616,154 @@ function pickWaypoints(roads, start, k, variant, style){
     prev = exit;
   }
   return out;
+}
+
+/* ---------- circuits ---------- */
+
+/* A circuit is a closed lap of connected road, the way a track is: every
+   segment joins the next, and you come back to where you started without
+   repeating anything. Built here from the raw map rather than by asking a
+   routing service, because routing services optimise for arriving. */
+
+function nodeKey(p){ return p[0].toFixed(5) + ":" + p[1].toFixed(5); }
+
+function metresBetween(a, b, latScale){
+  var dx = (a[0]-b[0]) * latScale, dy = (a[1]-b[1]) * 110540;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+
+/* Split every road where it meets another. Shared points are shared
+   coordinates, so junctions fall out of counting how often each one appears. */
+function buildGraph(ways, latScale){
+  var seen = {}, i, n, k;
+  for (i=0;i<ways.length;i++){
+    var g = ways[i].geometry;
+    for (n=0;n<g.length;n++){
+      k = nodeKey([g[n].lon, g[n].lat]);
+      seen[k] = (seen[k] || 0) + 1;
+    }
+  }
+
+  var edges = [], nodes = {}, adj = {};
+  function addNode(k, p){ if (!nodes[k]) { nodes[k] = p; adj[k] = []; } }
+
+  for (i=0;i<ways.length;i++){
+    var w = ways[i], geo = w.geometry;
+    if (!geo || geo.length < 2) continue;
+    var tags = w.tags || {};
+    var one = tags.oneway === "yes" || tags.oneway === "true" || tags.oneway === "1";
+    var rev = tags.oneway === "-1";
+    var run = [[geo[0].lon, geo[0].lat]], from = nodeKey(run[0]);
+
+    for (n=1;n<geo.length;n++){
+      var p = [geo[n].lon, geo[n].lat];
+      run.push(p);
+      k = nodeKey(p);
+      var junction = seen[k] > 1 || n === geo.length-1;
+      if (!junction || run.length < 2) continue;
+      if (k === from){ run = [p]; continue; }          // ignore closed stubs
+
+      var prep = prepare(run);
+      if (prep.metres > 20){
+        var pts = rev ? run.slice().reverse() : run;
+        var a = rev ? k : from, b = rev ? from : k;
+        addNode(a, pts[0]); addNode(b, pts[pts.length-1]);
+        var st = statsFor(prep);
+        var sev = 0;
+        for (var s=0;s<st.radii.length;s++) sev += severity(st.radii[s]);
+        sev = st.radii.length ? sev/st.radii.length : 0;
+        edges.push({from:a, to:b, pts:pts, metres:prep.metres, fun:sev,
+                    oneway:(one||rev), cls:tags.highway || "unclassified"});
+        adj[a].push(edges.length-1);
+        adj[b].push(edges.length-1);
+      }
+      from = k; run = [p];
+    }
+  }
+  return {edges:edges, nodes:nodes, adj:adj, latScale:latScale};
+}
+
+/* Small seeded random so a given search is repeatable. */
+function seededRandom(seed){
+  var a = seed >>> 0;
+  return function(){
+    a += 0x6D2B79F5;
+    var t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* Walk the network preferring good road, then bend back toward the start once
+   we're far enough round. Most walks fail to close — that's fine, they're
+   cheap, and we run a lot of them. */
+function walkCircuit(graph, startKey, targetM, seed){
+  var rnd = seededRandom(seed * 2654435761);
+  var node = startKey, used = {}, path = [], total = 0;
+  var home = graph.nodes[startKey], ls = graph.latScale;
+
+  for (var step=0; step<500; step++){
+    var opts = graph.adj[node] || [], cands = [], i;
+    for (i=0;i<opts.length;i++){
+      var ei = opts[i];
+      if (used[ei]) continue;
+      var e = graph.edges[ei];
+      if (e.oneway && e.from !== node) continue;
+      cands.push({ei:ei, e:e, other: e.from === node ? e.to : e.from});
+    }
+    if (!cands.length) return null;
+
+    var homing = total > targetM * 0.5;
+    var here = metresBetween(graph.nodes[node], home, ls);
+    var sum = 0;
+    for (i=0;i<cands.length;i++){
+      var w = Math.pow(0.04 + cands[i].e.fun, 2.4);
+      if (homing){
+        var there = metresBetween(graph.nodes[cands[i].other], home, ls);
+        w *= there < here ? 4 : 0.3;
+      }
+      cands[i].w = w; sum += w;
+    }
+
+    var pick = rnd() * sum, acc = 0, chosen = cands[cands.length-1];
+    for (i=0;i<cands.length;i++){ acc += cands[i].w; if (acc >= pick){ chosen = cands[i]; break; } }
+
+    used[chosen.ei] = 1;
+    path.push({ei: chosen.ei, e: chosen.e, forward: chosen.e.from === node});
+    total += chosen.e.metres;
+    node = chosen.other;
+
+    if (node === startKey && total > targetM * 0.65) return {path:path, metres:total};
+    if (total > targetM * 1.3) return null;
+  }
+  return null;
+}
+
+/* Stitch a circuit's segments into the same shape a routed path has, so the
+   scoring and display don't need to know where it came from. */
+function circuitToPath(circuit){
+  var coords = [], road = [], time = 0;
+  for (var i=0;i<circuit.path.length;i++){
+    var leg = circuit.path[i], pts = leg.forward ? leg.e.pts : leg.e.pts.slice().reverse();
+    var at = coords.length;
+    for (var n = (i === 0 ? 0 : 1); n<pts.length; n++) coords.push(pts[n]);
+    road.push([at ? at-1 : 0, coords.length-1, leg.e.cls]);
+    var kmh = Math.max(25, 70 - 45*leg.e.fun);      // tighter road, slower going
+    time += (leg.e.metres / (kmh/3.6)) * 1000;
+  }
+  return {points:{coordinates:coords}, distance:circuit.metres, time:time,
+          details:{road_class:road}};
+}
+
+function nearestNode(graph, lng, lat){
+  var best = null, bestD = Infinity;
+  for (var k in graph.nodes){
+    var p = graph.nodes[k];
+    var d = (p[0]-lng)*(p[0]-lng) + (p[1]-lat)*(p[1]-lat);
+    if (d < bestD){ bestD = d; best = k; }
+  }
+  return best;
 }
 
 /* ---------- routing ---------- */
@@ -655,28 +845,62 @@ function routeThrough(key, points){
   });
 }
 
-function search(){
-  var key = (document.getElementById("key").value || "").trim();
-  if (!key){
-    say("Add your GraphHopper key under Setup to start searching.", true);
-    document.getElementById("setup").open = true;
-    return;
+function findCircuits(graph, start, targetM, tries){
+  var startKey = nearestNode(graph, start.lng, start.lat);
+  if (!startKey) return [];
+  var out = [], seen = {}, t;
+  for (t=0;t<tries;t++){
+    var c = walkCircuit(graph, startKey, targetM, t+1);
+    if (!c) continue;
+    var ids = c.path.map(function(l){ return l.ei; }).sort(function(a,b){ return a-b; }).join(",");
+    if (seen[ids]) continue;
+    seen[ids] = 1;
+    out.push(score(circuitToPath(c)));
   }
-  if (!state.start){ say("Waiting for your location. Tap the map to pick a start instead.", true); return; }
+  return out;
+}
 
-  localStorage.setItem("backroad.key", key);
-
-  var km = +document.getElementById("km-range").value;
-  var tries = +document.getElementById("seeds").value;
-  var style = state.style;
-  var radius = (km*1000)/(2*Math.PI) * 0.78;        // roads wander; aim short
-  var roadsWanted = Math.max(3, Math.min(6, Math.round(km/18)));
+function begin(){
   var btn = document.getElementById("go");
-
   btn.disabled = true; btn.className = "busy"; btn.textContent = "Searching…";
   clearRoutes();
+}
 
-  ensureRoads(state.start, radius).then(function(roads){
+function finish(){
+  var btn = document.getElementById("go");
+  btn.disabled = false; btn.className = ""; btn.textContent = "Find a drive";
+}
+
+function present(found, note){
+  if (!found.length) throw new Error(note || "Nothing came back. Try a different length or start point.");
+  found.sort(function(a,b){ return b.total - a.total; });
+  state.results = found.slice(0,5);
+  renderTabs();
+  show(0);
+}
+
+function searchCircuit(km){
+  var targetM = km*1000;
+  var radius = targetM/(2*Math.PI) * 1.6;
+
+  return ensureGraph(state.start, radius).then(function(graph){
+    if (graph.edges.length < 40)
+      throw new Error("Not enough connected road around here for a circuit. Try a longer lap.");
+    say("Looking for a lap…");
+    var found = findCircuits(graph, state.start, targetM, 900);
+    present(found, "No closed lap found at that length. Try a different distance — laps need road that joins up.");
+    say(graph.edges.length + " road segments mapped, " + found.length
+        + " laps found. No routing credits used.");
+  });
+}
+
+function searchTour(km, key){
+  var radius = (km*1000)/(2*Math.PI) * 0.78;
+  var roadsWanted = Math.max(3, Math.min(6, Math.round(km/18)));
+  var tries = +document.getElementById("seeds").value;
+  var style = state.style;
+
+  return ensureRoads(state.start, radius).then(function(roads){
     if (!roads.length) throw new Error("No minor roads found out at that distance. Try a different loop length.");
 
     var found = [], done = 0, thin = 0, lastError = null;
@@ -691,10 +915,7 @@ function search(){
       return routeThrough(key, pts)
         .then(function(path){ if (path) found.push(score(path)); })
         .catch(function(err){ lastError = err; })
-        .then(function(){
-          done++;
-          say("Linking them up… " + done + " of " + tries);
-        });
+        .then(function(){ done++; say("Linking them up… " + done + " of " + tries); });
     }
 
     var chain = Promise.resolve();
@@ -703,22 +924,32 @@ function search(){
     })(v);
 
     return chain.then(function(){
-      if (!found.length){
-        if (thin && !lastError) throw new Error("The roads out at that distance are too sparse to make a loop. Try a shorter one.");
-        throw (lastError || new Error("No loops came back. Try a different length or start point."));
-      }
-      found.sort(function(a,b){ return b.total - a.total; });
-      state.results = found.slice(0,5);
-      renderTabs();
-      show(0);
+      if (!found.length && thin && !lastError)
+        throw new Error("The roads out at that distance are too sparse to make a loop. Try a shorter one.");
+      if (!found.length && lastError) throw lastError;
+      present(found);
       say(roads.length + " roads measured, best " + state.results.length + " loops kept."
           + (state.credits !== null ? "  " + state.credits + " credits left today." : ""));
     });
-  }).catch(function(err){
-    say(err.message, true);
-  }).then(function(){
-    btn.disabled = false; btn.className = ""; btn.textContent = "Find a drive";
   });
+}
+
+function search(){
+  if (!state.start){ say("Waiting for your location. Tap the map to pick a start instead.", true); return; }
+
+  var km = +document.getElementById("km-range").value / MI;
+  var key = (document.getElementById("key").value || "").trim();
+
+  if (state.mode === "tour" && !key){
+    say("Tour mode needs your GraphHopper key. Add it under Setup, or switch to Circuit.", true);
+    document.getElementById("setup").open = true;
+    return;
+  }
+  if (key) localStorage.setItem("backroad.key", key);
+
+  begin();
+  var job = state.mode === "circuit" ? searchCircuit(km) : searchTour(km, key);
+  job.catch(function(err){ say(err.message, true); }).then(finish);
 }
 
 /* ---------- display ---------- */
@@ -746,7 +977,7 @@ function renderTabs(){
   state.results.forEach(function(r, i){
     var b = document.createElement("button");
     b.className = "rt";
-    b.innerHTML = "<b>" + Math.round(r.km) + "km</b>" + r.best.toFixed(1) + "km best";
+    b.innerHTML = "<b>" + Math.round(r.km*MI) + "mi</b>" + (r.best*MI).toFixed(1) + "mi best";
     b.addEventListener("click", function(){ show(i); });
     box.appendChild(b);
   });
@@ -770,10 +1001,10 @@ function show(i){
 
   document.getElementById("empty").hidden = true;
   document.getElementById("readout").hidden = false;
-  document.getElementById("km").innerHTML = Math.round(r.km) + "<span>km</span>";
+  document.getElementById("km").innerHTML = Math.round(r.km*MI) + "<span>mi</span>";
   document.getElementById("dur").textContent =
     Math.floor(r.mins/60) + "h " + String(r.mins%60).padStart(2,"0");
-  document.getElementById("s-run").textContent = r.best.toFixed(1);
+  document.getElementById("s-run").textContent = (r.best*MI).toFixed(1);
   document.getElementById("s-twisty").textContent = Math.round(r.twisty*100) + "%";
   document.getElementById("s-back").textContent = Math.round(Math.min(1, r.lap*2)*100) + "%";
 
@@ -805,12 +1036,12 @@ function gpx(){
   }).join("\n");
   var doc = '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<gpx version="1.1" creator="Backroad" xmlns="http://www.topografix.com/GPX/1/1">\n' +
-    "<trk><name>Backroad " + Math.round(r.km) + "km</name><trkseg>\n" + rows +
+    "<trk><name>Backroad " + Math.round(r.km*MI) + " miles</name><trkseg>\n" + rows +
     "\n</trkseg></trk>\n</gpx>";
 
   var url = URL.createObjectURL(new Blob([doc], {type:"application/gpx+xml"}));
   var a = document.createElement("a");
-  a.href = url; a.download = "backroad-" + Math.round(r.km) + "km.gpx";
+  a.href = url; a.download = "backroad-" + Math.round(r.km*MI) + "mi.gpx";
   a.click();
   setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
 }
@@ -859,11 +1090,24 @@ function init(){
 
   var kmRange = document.getElementById("km-range");
   kmRange.addEventListener("input", function(){
-    document.getElementById("km-out").textContent = kmRange.value + " km";
+    document.getElementById("km-out").textContent = kmRange.value + (kmRange.value === "1" ? " mile" : " miles");
   });
   var seeds = document.getElementById("seeds");
   seeds.addEventListener("input", function(){
     document.getElementById("seeds-out").textContent = seeds.value;
+  });
+
+  document.getElementById("mode-seg").addEventListener("click", function(e){
+    var b = e.target.closest("button");
+    if (!b) return;
+    state.mode = b.dataset.mode;
+    Array.prototype.forEach.call(this.children, function(c){ c.className = c === b ? "on" : ""; });
+    document.getElementById("km-label").textContent =
+      state.mode === "circuit" ? "Lap length" : "Loop length";
+    clearRoutes();
+    say(state.mode === "circuit"
+      ? "Circuits are built from the map itself — no routing credits used."
+      : "Tours link distant roads together and use your routing key.");
   });
 
   document.getElementById("style-seg").addEventListener("click", function(e){
