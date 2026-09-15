@@ -750,15 +750,23 @@ function fetchArea(start, radius){
   });
 }
 
+function breathe(){
+  return new Promise(function(r){ requestAnimationFrame(function(){ setTimeout(r, 0); }); });
+}
+
 function ensureGraph(start, radius){
   var key = "g:" + start.lat.toFixed(3)+","+start.lng.toFixed(3)+","+Math.round(radius);
   if (state.graphKey === key && state.graph) return Promise.resolve(state.graph);
-  say("Mapping the roads around you…");
+  say("Asking OpenStreetMap for the roads…");
   return fetchArea(start, radius).then(function(data){
+    say("Building the road network…");
+    return breathe().then(function(){ return data; });
+  }).then(function(data){
     var ls = 111320 * Math.cos(start.lat * Math.PI/180);
     var schools = data.schools.length ? hazardCells(data.schools, ls, 250) : null;
     var cameras = data.cameras.length ? hazardCells(data.cameras, ls, 150) : null;
     var g = buildGraph(data.ways, ls, schools, cameras);
+    say("Trimming dead ends…");
     g = mergeChains(pruneSpurs(g), 5000);
     g = mergeChains(pruneSpurs(g), 5000);
     g.schools = data.schools.length;
@@ -1694,7 +1702,7 @@ function finishSearch(r, graph, tFetch, tSearch, radius){
     present(r.found);
     var total = Math.round((tFetch + tSearch)/100)/10;
     say(r.loose ? "Nothing at that length. These are the closest."
-      : total >= 5 ? ("Took " + total + "s — " + Math.round(tFetch/1000)
+      : total >= 2 ? ("Took " + total + "s — " + Math.round(tFetch/1000)
                       + "s reading the map, " + Math.round(tSearch/1000) + "s searching it.")
       : "");
 }
