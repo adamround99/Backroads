@@ -91,6 +91,20 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
 .start-dot{background:var(--accent)}
 .lap-dot{width:20px;height:20px;background:var(--route)}
 
+/* Place labels sitting over the map. Non-interactive, and outlined against
+   the basemap so they stay readable over both roads and open country. */
+.place{display:flex;align-items:center;gap:5px;transform:translate(-5px,-9px);white-space:nowrap}
+.place i{
+  width:7px;height:7px;border-radius:50%;flex:0 0 7px;
+  background:var(--ink);border:2px solid var(--surface);box-sizing:content-box;
+}
+.place span{
+  font-family:"Barlow Condensed",Barlow,sans-serif;
+  font-weight:600;font-size:13.5px;letter-spacing:.02em;
+  color:var(--ink);
+  -webkit-text-stroke:3px var(--surface);paint-order:stroke fill;
+}
+
 /* ---------- panel ---------- */
 #sheet{
   position:fixed;left:0;right:0;bottom:0;z-index:400;
@@ -171,6 +185,14 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
 #star[aria-pressed="true"]{background:color-mix(in srgb, var(--accent) 16%, transparent)}
 #star[aria-pressed="true"] svg{fill:var(--accent);stroke:var(--accent)}
 
+/* Each tab gets only the actions that belong to it. Searching is something you
+   do having set the options; Navigate and save are things you do to a lap you
+   already have. Offering both at once made "Find a drive" read as though it
+   might replace the lap you were looking at. */
+#sheet.on-route #go{display:none}
+#sheet.on-options #nav,
+#sheet.on-options #star{display:none}
+
 /* ---------- settings ---------- */
 .field{margin-bottom:18px}
 .field label{
@@ -218,6 +240,12 @@ details[open] summary::before{content:"\2212 "}
 .lap-acts button.on{color:var(--accent)}
 .lap-acts button:hover{background:var(--raised);color:var(--ink)}
 #saved-empty{font-size:13.5px;color:var(--muted);margin:10px 0}
+
+.via{
+  margin:10px 0 0;font-size:14.5px;line-height:1.5;color:var(--muted);
+}
+.via b{color:var(--ink);font-weight:600}
+.via:empty{display:none}
 
 #msg{font-size:14px;margin-top:12px;color:var(--muted);min-height:20px}
 #msg:empty{min-height:0;margin-top:0}
@@ -299,21 +327,22 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 
 <div id="map"></div>
 
-<div id="sheet">
+<div id="sheet" class="on-options">
   <div id="switch" role="tablist" aria-label="Panel view">
-    <button id="tab-route" type="button" role="tab" aria-selected="true"
-            aria-controls="pane-route" class="on">Route</button>
-    <button id="tab-options" type="button" role="tab" aria-selected="false"
-            aria-controls="pane-options">Options</button>
+    <button id="tab-route" type="button" role="tab" aria-selected="false"
+            aria-controls="pane-route">Route</button>
+    <button id="tab-options" type="button" role="tab" aria-selected="true"
+            aria-controls="pane-options" class="on">Options</button>
   </div>
 
-  <div id="pane-route" role="tabpanel" aria-labelledby="tab-route">
+  <div id="pane-route" role="tabpanel" aria-labelledby="tab-route" hidden>
     <div id="readout" hidden>
       <div class="readout">
         <div class="dist" id="km">—<span>mi</span></div>
         <div class="dur" id="dur"></div>
       </div>
       <div class="approach" id="approach"></div>
+      <p class="via" id="via"></p>
     </div>
 
     <p class="empty-line" id="empty">Find a lap you can drive round and round. Tap the map to start somewhere else.</p>
@@ -327,7 +356,7 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
     <div id="routes"></div>
   </div>
 
-  <div id="pane-options" role="tabpanel" aria-labelledby="tab-options" hidden>
+  <div id="pane-options" role="tabpanel" aria-labelledby="tab-options">
     <div class="field">
       <label>How long you want to be out</label>
       <div class="chips" id="mins-chips">
@@ -374,7 +403,7 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
     </button>
   </div>
 
-  <details id="saved-box" hidden>
+  <details id="saved-box">
     <summary>Saved laps <span id="saved-count"></span></summary>
     <div id="saved-list"></div>
   </details>
@@ -437,7 +466,7 @@ var state = {
   bounds: null          // what the drawn route spans
 };
 
-var map, tiles, startMarker, lapMarker, routeLine, ghostLine;
+var map, tiles, startMarker, lapMarker, routeLine, ghostLine, placeMarks = [];
 
 /* ---------- geometry ---------- */
 
@@ -623,6 +652,7 @@ function score(path){
     climb: climb(pts),
     good: mix.good,
     lap: lap,
+    roads: path.roads || [],
     total: st.best*1.2 + st.twisty*8 + mix.good*3 - mix.dull*4 - lap*20
   };
 }
@@ -689,12 +719,15 @@ function fetchArea(start, radius){
         + 'node["amenity"="school"]' + at + ';'
         + 'way["amenity"="school"]' + at + ';'
         + 'node["highway"="speed_camera"]' + at + ';'
+        + 'node["place"~"^(town|village|hamlet|suburb)$"]["name"]' + at + ';'
         + ');out geom;';
   return askOverpass(q).then(function(j){
-    var els = j.elements || [], ways = [], schools = [], cameras = [], i;
+    var els = j.elements || [], ways = [], schools = [], cameras = [], places = [], i;
     for (i=0;i<els.length;i++){
       var e = els[i], tg = e.tags || {};
-      if (tg.highway === "speed_camera"){
+      if (tg.place && tg.name){
+        places.push({lon:e.lon, lat:e.lat, name:tg.name, kind:tg.place});
+      } else if (tg.highway === "speed_camera"){
         if (e.type === "node") cameras.push([e.lon, e.lat]);
       } else if (tg.amenity === "school"){
         if (e.type === "node") schools.push([e.lon, e.lat]);
@@ -704,7 +737,7 @@ function fetchArea(start, radius){
         ways.push(e);
       }
     }
-    return {ways: ways, schools: schools, cameras: cameras};
+    return {ways: ways, schools: schools, cameras: cameras, places: places};
   });
 }
 
@@ -721,6 +754,8 @@ function ensureGraph(start, radius){
     g = mergeChains(pruneSpurs(g), 5000);
     g.schools = data.schools.length;
     g.cameras = data.cameras.length;
+    g.radius = radius;               // so the walk never counts on road we didn't fetch
+    g.places = data.places || [];
     state.graph = g; state.graphKey = key;
     return g;
   });
@@ -775,6 +810,18 @@ function speedFactor(tags){
    more than its own length, which a simple average can never capture. */
 
 var TURN_ALLOW = 2.5;   // rough per-junction cost while the walk is still steering
+
+/* How far from the lap's start the walk is allowed to wander, as a fraction of
+   the lap's own length. The fetch radius is derived from this same number: ask
+   for any less map and the walk hits the edge of the world, ask for more and
+   you wait on Overpass for road you'll never touch. */
+var LEASH = 0.18;
+
+/* Pace assumed when sizing the fetch, before any roads are in hand to measure.
+   15 m/s is about 34mph, which is what B roads and lanes actually average.
+   The old 20 m/s was a motorway figure and made every query 50% larger than
+   it needed to be. */
+var RECKON_SPEED = 15;
 var A_ACC = 1.8;    // m/s², brisk but not flat out
 var A_DEC = 2.6;    // m/s², comfortable braking on a road you don't know
 var A_LAT = 3.8;    // m/s², about 0.39g — spirited, still public-road sane
@@ -1294,7 +1341,7 @@ function wayBack(graph, from, to, used){
 /* Head out on the best road available, then find a way home. The outward leg
    is random so every attempt differs; the homeward leg is computed, so a lap
    almost always closes instead of relying on a lucky junction. */
-function walkCircuit(graph, startKey, targetS, seed){
+function walkCircuit(graph, startKey, targetS, seed, room){
   var rnd = seededRandom(seed * 2654435761);
   var node = startKey, used = {}, path = [], total = 0;
   var home = graph.nodes[startKey], ls = graph.latScale;
@@ -1322,7 +1369,11 @@ function walkCircuit(graph, startKey, targetS, seed){
 
     // Don't wander so far out that the way home swallows the whole lap.
     var here = fromHome;
-    var leash = here > targetM * 0.18;
+    /* Whichever is tighter: how far the lap's length justifies wandering, or
+       how much fetched map is actually out there. In fast open country the
+       first can exceed the second, and walking into an empty edge of the
+       world produces truncated laps rather than an error. */
+    var leash = here > Math.min(targetM * LEASH, room || Infinity);
     var sum = 0;
     for (i=0;i<cands.length;i++){
       var w = Math.pow(0.04 + cands[i].e.fun, 2.4) * cands[i].e.quality;
@@ -1362,6 +1413,52 @@ function walkCircuit(graph, startKey, targetS, seed){
 
 /* Stitch a circuit's segments into the same shape a routed path has, so the
    scoring and display don't need to know where it came from. */
+/* Places the route passes, in travel order. A hamlet has to be almost on the
+   road to count; a town registers from further off, because you'd say you went
+   "through Southam" from its edge but not "through" a hamlet you passed a
+   field away from. */
+var PLACE_REACH = {town: 1500, suburb: 1100, village: 850, hamlet: 450};
+
+function placesAlong(places, pts, latScale){
+  if (!places || !places.length || !pts || pts.length < 2) return [];
+  var out = [], seen = {}, stride = Math.max(1, Math.round(pts.length/400)), i, j;
+
+  for (i=0;i<pts.length;i+=stride){
+    var best = null, bestD = Infinity;
+    for (j=0;j<places.length;j++){
+      var p = places[j];
+      if (seen[p.name]) continue;
+      var dx = (p.lon - pts[i][0]) * latScale;
+      var dy = (p.lat - pts[i][1]) * 110540;
+      var d = Math.sqrt(dx*dx + dy*dy);
+      if (d < (PLACE_REACH[p.kind] || 600) && d < bestD){ bestD = d; best = p; }
+    }
+    if (best){ seen[best.name] = 1; out.push(best); }
+  }
+  return out;
+}
+
+/* Too many names is as unhelpful as none. Keep the ends — where you start and
+   the furthest point are the ones that place the drive — and thin the middle,
+   preferring bigger settlements. */
+function viaPicked(found, max){
+  if (found.length <= max) return found.slice();
+  var rank = {town:1, suburb:2, village:3, hamlet:4};   // 1-based: 0 is falsy
+  var keep = [found[0], found[found.length-1]];
+  var middle = found.slice(1, -1).slice();
+  middle.sort(function(a,b){ return (rank[a.kind]||9) - (rank[b.kind]||9); });
+  keep = keep.concat(middle.slice(0, max-2));
+  var order = {};
+  found.forEach(function(p,i){ order[p.name] = i; });
+  return keep.sort(function(a,b){ return order[a.name] - order[b.name]; });
+}
+
+function sentence(list){
+  if (!list.length) return "";
+  if (list.length === 1) return list[0];
+  return list.slice(0,-1).join(", ") + " and " + list[list.length-1];
+}
+
 function circuitToPath(circuit){
   var coords = [], road = [], secs = 0, metres = 0, prevOut = null;
   for (var i=0;i<circuit.path.length;i++){
@@ -1384,8 +1481,16 @@ function circuitToPath(circuit){
     secs += turnSeconds(turnFrom(prevOut, back) * Math.PI/180);
   }
 
+  var byName = {};
+  for (i=0;i<circuit.path.length;i++){
+    var nm = circuit.path[i].e.name;
+    if (nm) byName[nm] = (byName[nm] || 0) + circuit.path[i].e.metres;
+  }
+  var roads = Object.keys(byName).map(function(n){ return [n, byName[n]]; })
+              .sort(function(a,b){ return b[1] - a[1]; });
+
   return {points:{coordinates:coords}, distance:metres, time:secs*1000,
-          details:{road_class:road}};
+          roads:roads, details:{road_class:road}};
 }
 
 function nearestNode(graph, lng, lat){
@@ -1412,8 +1517,12 @@ function findCircuits(graph, start, targetS, reachM, tries){
 
   for (s=0;s<picked.starts.length;s++){
     var from = picked.starts[s];
+    // Road left between this start and the edge of what we downloaded.
+    var room = graph.radius
+      ? Math.max(1200, (graph.radius - (from.away || 0)) * 0.9)
+      : Infinity;
     for (t=0;t<each;t++){
-      var c = walkCircuit(graph, from.key, walkTarget, s*1000 + t + 1);
+      var c = walkCircuit(graph, from.key, walkTarget, s*1000 + t + 1, room);
       if (!c) continue;
       if (c.fail){ diag[c.fail]++; continue; }
       diag.closed++;
@@ -1461,18 +1570,35 @@ function present(found, note){
 function searchCircuit(mins){
   var targetS = mins * 60;
   var reachM = state.reach / MI * 1000;
-  /* How much map to fetch. The real pace isn't known until the roads are in
-     hand, so assume a brisk 45mph for sizing — too generous is a slower
-     query, too mean is a lap that can't reach far enough to exist. */
-  var reckonM = targetS * 20;
-  var radius = Math.min(34000, reckonM/(2*Math.PI) * 1.5 + reachM);
+
+  /* How much map to fetch. The walk can never get further from its start than
+     LEASH of the lap length, and the start itself is at most reachM away, so
+     that sum plus a small margin is the whole world it can reach. Sizing it
+     off a circle's circumference instead, as this used to, asked for roughly
+     half as much again as the search could ever use.
+     Corrected by your own pace: if you drive slower than the model reckons,
+     an hour covers less ground and needs less map. */
+  var reckonM = (targetS / paceFactor()) * RECKON_SPEED;
+  var radius = Math.min(34000, reckonM * LEASH * 1.15 + reachM);
+
+  var t0 = Date.now(), tFetch = 0;
 
   return ensureGraph(state.start, radius).then(function(graph){
+    tFetch = Date.now() - t0;
     if (graph.edges.length < 30)
       throw new Error("Not enough connected road around here to build a lap. Try starting somewhere less built up.");
     say("Looking for a lap…");
+    var tSearch = Date.now();
     var r = findCircuits(graph, state.start, targetS, reachM, 200);
+    tSearch = Date.now() - tSearch;
     var d = r.diag;
+
+    /* Where the wait went. Only surfaced when it was actually a wait, but
+       always recorded, so a slow search can be diagnosed rather than guessed
+       at — reading the map and searching it are very different problems. */
+    state.timing = {fetch: tFetch, search: tSearch,
+                    cached: tFetch < 60, segments: graph.edges.length,
+                    radius: Math.round(radius/1000)};
 
     if (!r.found.length){
       throw new Error("No lap closed. " + graph.edges.length + " segments, "
@@ -1482,8 +1608,11 @@ function searchCircuit(mins){
     }
 
     present(r.found);
-    // Nothing to say when it worked — the laps speak for themselves.
-    say(r.loose ? "Nothing at that length. These are the closest." : "");
+    var total = Math.round((tFetch + tSearch)/100)/10;
+    say(r.loose ? "Nothing at that length. These are the closest."
+      : total >= 5 ? ("Took " + total + "s — " + Math.round(tFetch/1000)
+                      + "s reading the map, " + Math.round(tSearch/1000) + "s searching it.")
+      : "");
   });
 }
 
@@ -1537,6 +1666,58 @@ function renderTabs(){
   });
 }
 
+/* Worked out only for the lap you're looking at. Doing it for all 200
+   candidates would cost more than the search itself. */
+function describe(r){
+  if (r.via !== undefined) return r.via;
+  var g = state.graph;
+  var found = g ? placesAlong(g.places, r.pts, g.latScale) : [];
+  r.viaPlaces = viaPicked(found, 4);
+  r.viaNames = r.viaPlaces.map(function(p){ return p.name; });
+  r.anchor = anchorPlace(found);
+  r.via = sentence(r.viaNames);
+  return r.via;
+}
+
+/* The one place worth naming the lap after: the biggest thing it goes through,
+   falling back to the first. "Southam loop" beats "24 mile lap". */
+function anchorPlace(found){
+  if (!found.length) return "";
+  var rank = {town:1, suburb:2, village:3, hamlet:4};   // 1-based: 0 is falsy
+  var best = found[0];
+  for (var i=1;i<found.length;i++){
+    if ((rank[found[i].kind]||9) < (rank[best.kind]||9)) best = found[i];
+  }
+  return best.name;
+}
+
+function roadsLine(r){
+  var big = (r.roads || []).filter(function(x){ return x[1] > 900; }).slice(0,3);
+  return big.length ? sentence(big.map(function(x){ return x[0]; })) : "";
+}
+
+/* Place and road names come from OpenStreetMap, which anyone can edit, so they
+   are never treated as markup. Built as text nodes rather than a string of
+   HTML — there is no parse step for a crafted name to exploit. */
+function renderVia(r){
+  var el = document.getElementById("via");
+  var via = describe(r), roads = roadsLine(r);
+  el.textContent = "";
+  if (!via && !roads) return;
+
+  function add(text, strong){
+    var node = strong ? document.createElement("b") : document.createTextNode(text);
+    if (strong){ node.textContent = text; }
+    el.appendChild(node);
+  }
+
+  if (via){ add("Through "); add(via, true); }
+  if (roads){
+    add(via ? ", mainly " : "Mainly ");
+    add(roads, true);
+  }
+}
+
 function show(i){
   var r = state.results[i];
   if (!r) return;
@@ -1567,6 +1748,23 @@ function show(i){
   document.getElementById("approach").textContent =
     away > 0.6 ? "Lap starts " + away.toFixed(away < 10 ? 1 : 0) + " miles away" : "";
 
+  /* Name the places on the map, not just in the panel — the point is to
+     recognise where you're going before you commit to driving there. */
+  for (var pm=0; pm<placeMarks.length; pm++) map.removeLayer(placeMarks[pm]);
+  placeMarks = [];
+  (r.viaPlaces || []).forEach(function(p){
+    placeMarks.push(L.marker([p.lat, p.lon], {
+      interactive: false,
+      icon: L.divIcon({
+        className: "",
+        html: '<div class="place"><i></i><span></span></div>',
+        iconSize: [0,0], iconAnchor: [0,0]
+      })
+    }).addTo(map));
+    var el = placeMarks[placeMarks.length-1].getElement();
+    if (el) el.querySelector("span").textContent = p.name;   // textContent, so odd names can't inject markup
+  });
+
   if (lapMarker){ map.removeLayer(lapMarker); lapMarker = null; }
   if (away > 0.6){
     lapMarker = L.marker([r.pts[0][1], r.pts[0][0]], {
@@ -1579,6 +1777,7 @@ function show(i){
   document.getElementById("s-twisty").textContent = Math.round(r.twisty*100) + "%";
   document.getElementById("s-back").textContent = Math.round(Math.min(1, r.lap*2)*100) + "%";
   document.getElementById("nav").disabled = false;
+  renderVia(r);
   syncStar();
   if (optionsOpen) showOptions(false);
 }
@@ -1689,8 +1888,12 @@ function saveLap(r, driven){
   }
   list.push({
     id: id,
-    name: Math.round(r.km*MI) + " mile lap",
+    name: (describe(r), r.anchor ? r.anchor + " loop" : Math.round(r.km*MI) + " mile lap"),
     km: r.km, mins: r.mins, rawMins: r.rawMins || r.mins, best: r.best, twisty: r.twisty, lap: r.lap,
+    via: describe(r), roads: (r.roads || []).slice(0,3),
+    viaPlaces: (r.viaPlaces || []).map(function(p){
+      return {name:p.name, kind:p.kind, lat:+p.lat.toFixed(4), lon:+p.lon.toFixed(4)};
+    }),
     approach: r.approach || 0,
     saved: Date.now(), driven: driven ? Date.now() : null, fav: false,
     pts: thin(r.pts, 25)
@@ -1867,7 +2070,8 @@ function renderSaved(){
 function openLap(e){
   state.results = [{
     pts: e.pts, km: e.km, mins: e.mins, best: e.best, twisty: e.twisty,
-    lap: e.lap, approach: e.approach, total: 0
+    lap: e.lap, approach: e.approach, total: 0,
+    via: e.via || "", viaPlaces: e.viaPlaces || [], roads: e.roads || []
   }];
   renderTabs();
   show(0);
@@ -1921,7 +2125,7 @@ function navigate(){
 /* Two views in one panel: the route, or the options. They swap rather than
    stack, so the options are always one tap away even with a route on screen,
    and neither view is tall enough to need scrolling. */
-var optionsOpen = false;
+var optionsOpen = true;
 
 function showOptions(on){
   optionsOpen = on;
@@ -1934,6 +2138,9 @@ function showOptions(on){
   op.className = on ? "on" : "";
   rt.setAttribute("aria-selected", on ? "false" : "true");
   op.setAttribute("aria-selected", on ? "true" : "false");
+  var sheet = document.getElementById("sheet");
+  sheet.classList.toggle("on-options", on);
+  sheet.classList.toggle("on-route", !on);
   setTimeout(function(){ if (map) map.invalidateSize(); reframe(); }, 30);
 }
 
@@ -2059,7 +2266,7 @@ function init(){
 
   renderSaved();
   wireSheet();
-  showOptions(false);
+  showOptions(true);
   setTimeout(function(){ map.invalidateSize(); }, 80);
 
   if (navigator.geolocation){
