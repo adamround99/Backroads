@@ -93,16 +93,28 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
 
 /* Place labels sitting over the map. Non-interactive, and outlined against
    the basemap so they stay readable over both roads and open country. */
-.place{display:flex;align-items:center;gap:5px;transform:translate(-5px,-9px);white-space:nowrap}
+/* A text halo was near-invisible here: the surface colour it was drawn in sits
+   only a shade off the dark basemap. A solid chip is legible over roads, open
+   country, the route line and the basemap's own labels alike. */
+.place{
+  display:flex;align-items:center;gap:6px;white-space:nowrap;
+  transform:translate(-6px,-11px);
+}
+.place.flip{flex-direction:row-reverse;transform:translate(calc(-100% + 6px),-11px)}
 .place i{
-  width:7px;height:7px;border-radius:50%;flex:0 0 7px;
-  background:var(--ink);border:2px solid var(--surface);box-sizing:content-box;
+  width:8px;height:8px;border-radius:50%;flex:0 0 8px;
+  background:var(--accent);border:2px solid var(--surface);box-sizing:content-box;
+  box-shadow:0 1px 3px rgba(0,0,0,.5);
 }
 .place span{
   font-family:"Barlow Condensed",Barlow,sans-serif;
-  font-weight:600;font-size:13.5px;letter-spacing:.02em;
+  font-weight:600;font-size:15px;letter-spacing:.03em;
   color:var(--ink);
-  -webkit-text-stroke:3px var(--surface);paint-order:stroke fill;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:var(--pill);
+  padding:2px 9px 3px;
+  box-shadow:0 1px 4px rgba(0,0,0,.35);
 }
 
 /* ---------- panel ---------- */
@@ -1903,6 +1915,7 @@ function say(text, bad){
 
 function clearRoutes(){
   state.results = []; state.active = -1;
+  labelPlaces = []; drawLabels();
   markHasRoute(); renderPlan();
   window.dispatchEvent(new Event("backroads:route"));
   document.getElementById("routes").innerHTML = "";
@@ -2019,6 +2032,66 @@ function markHasRoute(){
   document.getElementById("sheet").classList.toggle("has-route", state.results.length > 0);
 }
 
+/* Labels are positioned in screen space, so they can only be laid out once the
+   map has settled where it's going — and have to be laid out again whenever it
+   moves. Placing them before a fitBounds, as this used to, meant measuring
+   against a view that no longer existed by the time anyone saw it. */
+var labelPlaces = [];
+
+function drawLabels(){
+  for (var i=0;i<placeMarks.length;i++) map.removeLayer(placeMarks[i]);
+  placeMarks = [];
+  if (!labelPlaces.length || !map) return;
+
+  var size = map.getSize();
+  var free = size.y - sheetCover();          // the strip of map actually visible
+  var taken = [];
+
+  /* Biggest places first, so when two collide the one that survives is the one
+     that better describes where you're going. */
+  var rank = {town:1, suburb:2, village:3, hamlet:4};
+  var order = labelPlaces.slice().sort(function(a,b){
+    return (rank[a.kind]||9) - (rank[b.kind]||9);
+  });
+
+  order.forEach(function(p){
+    var pt = map.latLngToContainerPoint([p.lat, p.lon]);
+    if (pt.x < 8 || pt.x > size.x - 8 || pt.y < 8 || pt.y > free - 8) return;
+
+    /* Try to keep a label rather than drop it: nudge it up or down a line or
+       two first, and only give up if every offset still collides. Dropping
+       freely would leave the panel listing places the map doesn't show. */
+    var nudges = [0, -20, 20, -40, 40], dy = null;
+    for (var n=0; n<nudges.length && dy === null; n++){
+      var y = pt.y + nudges[n], clash = false;
+      if (y < 8 || y > free - 8) continue;
+      for (var t=0;t<taken.length;t++){
+        if (Math.abs(taken[t].x - pt.x) < 96 && Math.abs(taken[t].y - y) < 26){ clash = true; break; }
+      }
+      if (!clash) dy = nudges[n];
+    }
+    if (dy === null) return;
+    taken.push({x: pt.x, y: pt.y + dy});
+
+    // Put the text on whichever side has more room, so it can't run off-screen.
+    var flip = pt.x > size.x * 0.62;
+
+    placeMarks.push(L.marker([p.lat, p.lon], {
+      interactive: false,
+      icon: L.divIcon({
+        className: "",
+        /* The name is escaped into the markup rather than written in after:
+           nothing depends on the element existing yet, and an OSM name
+           containing markup stays inert. */
+        html: '<div class="place' + (flip ? ' flip' : '') + '"'
+              + (dy ? ' style="margin-top:' + dy + 'px"' : '') + '><i></i><span>'
+              + escapeText(p.name) + '</span></div>',
+        iconSize: [0,0], iconAnchor: [0,0]
+      })
+    }).addTo(map));
+  });
+}
+
 function renderVia(r){
   var el = document.getElementById("via");
   var via = describe(r), roads = roadsLine(r);
@@ -2062,6 +2135,7 @@ function show(i, keepView){
   /* While the search is still running the map holds still — refitting on every
      improvement would throw the view around several times a second. */
   if (!keepView) frameRoute(state.bounds);
+  drawLabels();
 
   document.getElementById("empty").hidden = true;
   document.getElementById("readout").hidden = false;
@@ -2076,21 +2150,7 @@ function show(i, keepView){
      describe() must run before this, not after: it's what works the list out,
      and reading it first left every lap unlabelled until its second viewing. */
   describe(r);
-  for (var pm=0; pm<placeMarks.length; pm++) map.removeLayer(placeMarks[pm]);
-  placeMarks = [];
-  (r.viaPlaces || []).forEach(function(p){
-    /* The name is escaped into the icon's markup rather than written in
-       afterwards: nothing then depends on the icon element existing at this
-       moment, and an OSM name containing markup is still inert. */
-    placeMarks.push(L.marker([p.lat, p.lon], {
-      interactive: false,
-      icon: L.divIcon({
-        className: "",
-        html: '<div class="place"><i></i><span>' + escapeText(p.name) + '</span></div>',
-        iconSize: [0,0], iconAnchor: [0,0]
-      })
-    }).addTo(map));
-  });
+  labelPlaces = r.viaPlaces || [];
 
   if (lapMarker){ map.removeLayer(lapMarker); lapMarker = null; }
   if (away > 0.6){
@@ -2537,6 +2597,14 @@ function wireSheet(){
       if (map){ map.invalidateSize(); reframe(); }
     }, 120);
   }
+  if (map){
+    var settleLabels;
+    map.on("moveend zoomend", function(){
+      clearTimeout(settleLabels);
+      settleLabels = setTimeout(drawLabels, 80);
+    });
+  }
+
   window.addEventListener("resize", relayout);
   window.addEventListener("orientationchange", relayout);
 }
