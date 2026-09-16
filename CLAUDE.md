@@ -64,7 +64,8 @@ Everything else is computed on the phone.
     pickStarts      8 spread junctions within the "drive out" radius
     walkCircuit     random outward walk, 200 attempts
     wayBack         edge-based Dijkstra home
-    score           ranks them; top 5 shown
+    score           ranks them; only the best is shown (2026-09-17: was top 5,
+                    tabs to switch between candidates removed)
 
 `findCircuits` runs straight through; `findCircuitsLive` runs the same jobs in
 20ms slices between frames. They share one job list and return identical

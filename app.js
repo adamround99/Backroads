@@ -1514,8 +1514,7 @@ function finish(){
 function present(found, note){
   if (!found.length) throw new Error(note || "Nothing came back. Try a different length or start point.");
   found.sort(function(a,b){ return b.total - a.total; });
-  state.results = found.slice(0,5);
-  renderTabs();
+  state.results = found.slice(0,1);
   show(0);
 }
 
@@ -1556,7 +1555,6 @@ function searchCircuit(mins){
       function(best){
         // Draw the leader as soon as there is one, then quietly replace it.
         state.results = [best];
-        renderTabs();
         show(0, seenBest++ > 0);
       },
       function(done, total, found){
@@ -1624,7 +1622,6 @@ function clearRoutes(){
   labelPlaces = []; drawLabels();
   markHasRoute(); renderPlan();
   window.dispatchEvent(new Event("backroads:route"));
-  document.getElementById("routes").innerHTML = "";
   if (routeLine){ map.removeLayer(routeLine); routeLine = null; }
   if (ghostLine){ map.removeLayer(ghostLine); ghostLine = null; }
   if (lapMarker){ map.removeLayer(lapMarker); lapMarker = null; }
@@ -1635,18 +1632,6 @@ function clearRoutes(){
   document.getElementById("empty").hidden = false;
   document.getElementById("nav").disabled = true;
   syncStar();
-}
-
-function renderTabs(){
-  var box = document.getElementById("routes");
-  box.innerHTML = "";
-  state.results.forEach(function(r, i){
-    var b = document.createElement("button");
-    b.className = "rt";
-    b.innerHTML = "<b>" + clock(r.mins) + "</b>" + Math.round(r.km*MI) + "mi";
-    b.addEventListener("click", function(){ show(i); });
-    box.appendChild(b);
-  });
 }
 
 /* Worked out only for the lap you're looking at. Doing it for all 200
@@ -1831,10 +1816,6 @@ function show(i, keepView){
   if (!r) return;
   state.active = i;
   window.dispatchEvent(new Event("backroads:route"));
-
-  Array.prototype.forEach.call(document.querySelectorAll(".rt"), function(el, n){
-    el.className = "rt" + (n === i ? " on" : "");
-  });
 
   var latlngs = r.pts.map(function(p){ return [p[1], p[0]]; });
   if (routeLine) map.removeLayer(routeLine);
@@ -2198,7 +2179,6 @@ function openLap(e){
     via: e.via || "", viaPlaces: e.viaPlaces || [], roads: e.roads || [],
     riskPts: e.riskPts || []
   }];
-  renderTabs();
   show(0);
   say(e.name + " — " + drivenWhen(e.driven) + ".");
 }

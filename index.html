@@ -172,19 +172,6 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
 }
 .stat i{display:block;font-style:normal;font-size:11.5px;color:var(--muted);margin-top:1px}
 
-/* ---------- candidate laps ---------- */
-#routes{display:flex;gap:7px;overflow-x:auto;padding:14px 0 2px;scrollbar-width:none}
-#routes:empty{display:none}
-#routes::-webkit-scrollbar{display:none}
-.rt{
-  flex:0 0 auto;padding:9px 15px;border:0;border-radius:var(--pill);
-  background:var(--raised);color:var(--muted);white-space:nowrap;
-  font-family:"Barlow Condensed",Barlow,sans-serif;font-weight:600;font-size:15px;
-}
-.rt b{color:var(--ink);font-size:17px;margin-right:7px}
-.rt.on{background:var(--ink);color:var(--surface)}
-.rt.on b{color:var(--surface)}
-
 /* ---------- actions ---------- */
 .row{display:flex;gap:9px;margin-top:16px}
 .row button{
@@ -404,8 +391,6 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
       <div class="stat"><b id="s-twisty">—</b><i>of it cornering</i></div>
       <div class="stat"><b id="s-back">—</b><i>doubling back</i></div>
     </div>
-
-    <div id="routes"></div>
   </div>
 
   <div id="pane-options" role="tabpanel" aria-labelledby="tab-options" hidden>
