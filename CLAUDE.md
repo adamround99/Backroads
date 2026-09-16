@@ -28,6 +28,15 @@ in `MOODS` each set duration + reach + `state.freshness` in one tap and search
 immediately — see `pickMood`. Corner style deliberately isn't part of a mood;
 it's a standing taste, not something the reason for the drive should overrule.
 
+Each mood button carries a one-line subtitle (`<i>` under `<b>`, same pattern
+as the stat tiles) naming what it actually sets — plain duration/reach/
+freshness in words, not just a vibe. It's hardcoded text in index.html, not
+generated from `MOODS`, so **if the preset values in `MOODS` change, the
+subtitle text needs updating by hand to match** — same duplication the
+mins/reach chips already accept. Worth noting: `clear` and `best` differ only
+in reach (5 vs 10) and freshness's absence either way — the subtitles say so
+honestly rather than papering over how similar those two currently are.
+
 `state.freshness` drives `drivenCells` — a "somewhere new" grid built from
 points in laps `driven` in the last `FRESH_DAYS` (60), gridded the same way
 `hazardCells` marks schools and cameras. `makeSearch` builds it once per

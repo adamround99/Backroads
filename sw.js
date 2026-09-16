@@ -8,7 +8,7 @@
 
    Bump VERSION to force everyone onto new code. */
 
-var VERSION = "backroads-v12";   // bumped: map pins now require real proximity to the route
+var VERSION = "backroads-v13";   // bumped: mood buttons now explain what they search for
 var SHELL   = VERSION + "-shell";
 var TILES   = VERSION + "-tiles";
 var TILE_CAP = 1200;                 // roughly 60-80 MB of retina PNGs
