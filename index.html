@@ -206,14 +206,25 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
    might replace the lap you were looking at. */
 /* The moods are the landing action now — no lap yet, so the question is what
    kind of drive, not "go". Once a lap exists the Route tab is about that lap;
-   #go moves entirely into Options, for re-searching after changing your mind. */
-#sheet.on-route.has-route #go{display:none}
+   #go moves entirely into Options, for re-searching after changing your mind.
+   #remood is the way back to the mood grid without losing the lap on screen —
+   it stays visible the whole time you have a lap, unlike nav/star which step
+   aside while the moods are showing. */
+#sheet.on-route #go{display:none}
 #sheet.on-options #nav,
 #sheet.on-options #star{display:none}
+#sheet.on-route:not(.has-route) #nav,
+#sheet.on-route:not(.has-route) #star,
+#sheet.on-route.remood #nav,
+#sheet.on-route.remood #star{display:none}
 #sheet.on-route:not(.has-route) #actions{display:none}
 
+#remood{display:none;flex:1}
+#sheet.on-route.has-route #remood{display:block}
+
 #moods{display:none;flex-wrap:wrap}
-#sheet.on-route:not(.has-route) #moods{display:flex}
+#sheet.on-route:not(.has-route) #moods,
+#sheet.on-route.has-route.remood #moods{display:flex}
 #moods button{flex:1 1 calc(50% - 4.5px);background:var(--ink);color:var(--surface);
   font-size:15px;line-height:1.25;padding:14px 8px;transition:opacity .15s}
 #moods.busy button{opacity:.45;pointer-events:none}
@@ -448,6 +459,7 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 
   <div class="row" id="actions">
     <button id="go">Find me a drive</button>
+    <button id="remood" aria-pressed="false">Change mood</button>
     <button id="nav" disabled>Navigate</button>
     <button id="star" disabled aria-label="Save this lap" aria-pressed="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg>

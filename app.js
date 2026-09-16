@@ -1489,7 +1489,20 @@ function begin(){
      once results land), so without this a second tap mid-search would start
      an overlapping one. */
   document.getElementById("moods").classList.add("busy");
+  /* Any search, however it started, settles the "change mood" toggle back to
+     its resting state — there's no lap left to go back to until this one lands. */
+  document.getElementById("sheet").classList.remove("remood");
+  setRemoodLabel(false);
   clearRoutes();
+}
+
+/* #remood toggles between "I want a different mood" and "never mind, back to
+   my lap" — the label has to say which one a tap will do next. */
+function setRemoodLabel(on){
+  var b = document.getElementById("remood");
+  if (!b) return;
+  b.textContent = on ? "Back to this lap" : "Change mood";
+  b.setAttribute("aria-pressed", on ? "true" : "false");
 }
 
 function finish(){
@@ -2522,6 +2535,10 @@ function init(){
   document.getElementById("moods").addEventListener("click", function(e){
     var b = e.target.closest("button");
     if (b) pickMood(b.dataset.mood);
+  });
+  document.getElementById("remood").addEventListener("click", function(){
+    var on = document.getElementById("sheet").classList.toggle("remood");
+    setRemoodLabel(on);
   });
 
   document.getElementById("star").addEventListener("click", function(){
