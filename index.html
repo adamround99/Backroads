@@ -398,7 +398,6 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
         <button data-v="45">45m</button>
         <button data-v="60" class="on">1h</button>
         <button data-v="90">1h30</button>
-        <button data-v="120">2h</button>
       </div>
     </div>
 
@@ -408,7 +407,6 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
         <button data-v="0">0</button>
         <button data-v="5">5</button>
         <button data-v="10" class="on">10</button>
-        <button data-v="20">20</button>
         <span class="unit">miles</span>
       </div>
     </div>
@@ -731,7 +729,7 @@ function score(path){
     roads: path.roads || [],
     /* Retracing the same road is worst, but coming back along the next lane
        over is the same ground to a driver and was costing nothing at all. */
-    total: st.best*1.2 + st.twisty*8 + mix.good*3 - mix.dull*4 - lap*20 - near*9
+    total: st.best*1.2 + st.twisty*8 + mix.good*3 - mix.dull*4 - lap*34 - near*16
   };
 }
 
@@ -1517,10 +1515,14 @@ function wayBack(graph, from, to, used){
 
   var dist = {}, prev = {}, done = {}, heap = new Heap(), i;
 
-  // Reuse has to cost more than the worst turn penalty (about 6.7x), or the
-  // way home would rather retrace a mile of road than take a sharp left.
+  /* Reuse has to cost more than the worst turn penalty (about 6.7x), or the
+     way home would rather retrace a mile of road than take a sharp left.
+     At 9x it still took the retrace whenever the alternative was much longer,
+     which is how a lap ends up running out and straight back down the same
+     lane. Driving the same road twice is close to the worst thing a lap can
+     do, so it's priced accordingly. */
   function cost(e, ei, turn, sameRoad){
-    var c = e.metres * (used[ei] ? 9 : 1) / (0.15 + e.fun * e.quality);
+    var c = e.metres * (used[ei] ? 25 : 1) / (0.15 + e.fun * e.quality);
     return turn === null ? c : c / continuity(turn, sameRoad);
   }
 
@@ -2033,8 +2035,8 @@ function escapeText(t){
 function applyPrefs(){
   var p = loadPrefs();
   if (!p) return;
-  if (p.mins) state.mins = p.mins;
-  if (typeof p.reach === "number") state.reach = p.reach;
+  if (p.mins) state.mins = Math.min(p.mins, 90);
+  if (typeof p.reach === "number") state.reach = Math.min(p.reach, 10);
   if (p.style) state.style = p.style;
 
   function mark(id, value){
