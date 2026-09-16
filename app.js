@@ -488,7 +488,7 @@ function startSweep(at, radius){
   stopSweep();
   if (!map || !at) return;
 
-  var colour = getComputedStyle(document.body).getPropertyValue("--route").trim() || "#3D5AFE";
+  var colour = getComputedStyle(document.body).getPropertyValue("--route").trim() || "#80A3C5";
 
   sweepRing = L.circle([at.lat, at.lng], {
     radius: radius, interactive: false, fill: false,
@@ -1847,7 +1847,7 @@ function show(i, keepView){
   if (routeLine) map.removeLayer(routeLine);
   if (ghostLine) map.removeLayer(ghostLine);
   var css = getComputedStyle(document.body);
-  var routeColour = css.getPropertyValue("--route").trim() || "#3D5AFE";
+  var routeColour = css.getPropertyValue("--route").trim() || "#80A3C5";
   var casing = css.getPropertyValue("--casing").trim() || "#FFFFFF";
   ghostLine = L.polyline(latlngs, {color:casing, weight:13, opacity:1,
                                    lineCap:"round", lineJoin:"round"}).addTo(map);

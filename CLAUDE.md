@@ -59,6 +59,21 @@ The URL is bucketed by hour (`_h=`) purely so `sw.js`'s cache-first handling
 of GET requests refreshes it hourly instead of serving one stale reading
 forever from the same rough spot.
 
+**Brand colour (2026-09-17): `--route` is Hyundai N Performance Blue,
+`#80A3C5`.** Sourced from a paint retailer's colour-matched swatch (verified
+identical across several Performance Blue product listings), not a guess —
+Hyundai doesn't publish a digital hex for this specific car paint, and their
+published corporate blue (`#00287A`, Pantone 288C) is a different, unrelated
+navy used for the logo. The real paint is lighter and more desaturated than
+photos suggest, which is why it's paired with a fixed dark `--on-route`
+(`#0E1417`, same value in both themes) rather than white — white text on it
+fails contrast. One colour in both light and dark mode now, not a light/dark
+pair like before; it's light enough already to hold up on a dark map, unlike
+the old indigo it replaced. Applies to the route line, the mood grid, `#go`,
+the splash screen mark (inherits `--route` for free), and the timing-prompt
+button. `--accent` (start marker, favourites, orange) is unchanged — it needs
+to contrast against the route colour, not match it.
+
 ## Files
 
     index.html          markup and all CSS (~17KB)

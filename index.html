@@ -28,7 +28,12 @@
   --ink:#0E1417;
   --muted:#6C7671;
   --line:#E3E7E5;
-  --route:#3D5AFE;        /* the drawn lap */
+  /* Hyundai N Performance Blue (paint code SFB/XFB), sourced from a paint
+     retailer's colour-matched swatch, not a guess — it's the actual i30N's
+     colour. Lighter than it looks in photos, which is why anything filled
+     with it pairs with --on-route rather than white text. */
+  --route:#80A3C5;        /* the drawn lap, and the brand colour generally */
+  --on-route:#0E1417;     /* text/icons on a --route-filled surface, fixed in both themes */
   --casing:#FFFFFF;       /* drawn under the lap, to lift it off the map */
   --accent:#FF5A1F;       /* where the lap begins, favourites */
   --shadow:0 -14px 44px rgba(14,20,23,.16);
@@ -44,9 +49,8 @@
     --ink:#ECEFEE;
     --muted:#8C958F;
     --line:#282E33;
-    /* Blue carries very little luminance, so the indigo that reads well on
-       a white map disappears on a black one. Same family, far brighter. */
-    --route:#5CC2FF;
+    /* --route stays the same colour in both themes — it's light enough
+       already (unlike the old indigo) to hold up against a dark map too. */
     --casing:#04070A;
     --accent:#FF7A47;
     --shadow:0 -14px 44px rgba(0,0,0,.55);
@@ -180,7 +184,7 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
   transition:opacity .15s;
 }
 .row button[disabled]{opacity:.4}
-#go{flex:2;background:var(--ink);color:var(--surface)}
+#go{flex:2;background:var(--route);color:var(--on-route)}
 #nav{flex:1}
 #star{flex:0 0 56px;display:flex;align-items:center;justify-content:center;padding:0}
 #star svg{width:22px;height:22px;fill:none;stroke:var(--ink);stroke-width:1.8;stroke-linejoin:round}
@@ -212,7 +216,7 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
 #moods{display:none;flex-wrap:wrap}
 #sheet.on-route:not(.has-route) #moods,
 #sheet.on-route.has-route.remood #moods{display:flex}
-#moods button{flex:1 1 calc(50% - 4.5px);background:var(--ink);color:var(--surface);
+#moods button{flex:1 1 calc(50% - 4.5px);background:var(--route);color:var(--on-route);
   font-size:15px;line-height:1.25;padding:14px 8px;transition:opacity .15s}
 #moods.busy button{opacity:.45;pointer-events:none}
 
@@ -286,7 +290,7 @@ details[open] summary::before{content:"\2212 "}
 .calib button{
   border:0;border-radius:var(--pill);padding:7px 14px;
   font-family:inherit;font-size:13px;font-weight:600;
-  background:var(--route);color:#fff;
+  background:var(--route);color:var(--on-route);
 }
 .calib button.ghost{background:transparent;color:var(--muted)}
 .hint{margin:8px 0 0;font-size:13.5px;color:var(--muted);line-height:1.45}
