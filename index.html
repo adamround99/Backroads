@@ -658,6 +658,44 @@ function overlap(prep){
   return revisits / Math.max(xy.length, 1);
 }
 
+/* overlap() only catches the route landing on itself within 60m. The shape
+   that actually reads as doubling back is wider than that: going out on one
+   lane and coming back on the next one over, a few hundred metres away. To a
+   driver that's the same ground twice; to a 60m grid it's two different roads.
+
+   So: count points that pass close to a part of the route reached much later.
+   The along-route threshold has to be generous — a hairpin brings the road
+   within 200m of itself after only a few hundred metres, and that's good
+   driving, not a detour. */
+function closePasses(prep){
+  var xy = prep.xy, cell = 250, near = 2;          // cells to check either side
+  var grid = {}, i, gx, gy, k;
+
+  for (i=0;i<xy.length;i++){
+    gx = Math.round(xy[i][0]/cell); gy = Math.round(xy[i][1]/cell);
+    k = gx + ":" + gy;
+    if (grid[k] === undefined) grid[k] = i;        // earliest visit to this cell
+  }
+
+  var hits = 0;
+  for (i=0;i<xy.length;i++){
+    gx = Math.round(xy[i][0]/cell); gy = Math.round(xy[i][1]/cell);
+    var found = false;
+    for (var dx=-near; dx<=near && !found; dx++){
+      for (var dy=-near; dy<=near && !found; dy++){
+        var j = grid[(gx+dx) + ":" + (gy+dy)];
+        if (j === undefined) continue;
+        if ((i - j) * STEP > 1500){                // came back here much later
+          var ddx = xy[i][0]-xy[j][0], ddy = xy[i][1]-xy[j][1];
+          if (Math.sqrt(ddx*ddx + ddy*ddy) < 650) found = true;
+        }
+      }
+    }
+    if (found) hits++;
+  }
+  return hits / Math.max(xy.length, 1);
+}
+
 function roadMix(details){
   var good = 0, dull = 0;
   var rows = (details && details.road_class) || [];
@@ -676,6 +714,7 @@ function score(path){
   var st = statsFor(prep);
   var km = path.distance/1000;
   var lap = overlap(prep);
+  var near = closePasses(prep);
   var mix = roadMix(path.details);
   return {
     pts: pts,
@@ -688,8 +727,11 @@ function score(path){
     climb: climb(pts),
     good: mix.good,
     lap: lap,
+    near: near,
     roads: path.roads || [],
-    total: st.best*1.2 + st.twisty*8 + mix.good*3 - mix.dull*4 - lap*20
+    /* Retracing the same road is worst, but coming back along the next lane
+       over is the same ground to a driver and was costing nothing at all. */
+    total: st.best*1.2 + st.twisty*8 + mix.good*3 - mix.dull*4 - lap*20 - near*9
   };
 }
 
@@ -2162,7 +2204,8 @@ function show(i, keepView){
   document.getElementById("stats").hidden = false;
   document.getElementById("s-run").textContent = (r.best*MI).toFixed(1);
   document.getElementById("s-twisty").textContent = Math.round(r.twisty*100) + "%";
-  document.getElementById("s-back").textContent = Math.round(Math.min(1, r.lap*2)*100) + "%";
+  document.getElementById("s-back").textContent =
+    Math.round(Math.min(1, Math.max(r.lap*2, r.near || 0))*100) + "%";
   document.getElementById("nav").disabled = false;
   markHasRoute();
   renderVia(r);
@@ -2293,7 +2336,7 @@ function saveLap(r, driven){
   list.push({
     id: id,
     name: (describe(r), r.anchor ? r.anchor + " loop" : Math.round(r.km*MI) + " mile lap"),
-    km: r.km, mins: r.mins, rawMins: r.rawMins || r.mins, best: r.best, twisty: r.twisty, lap: r.lap,
+    km: r.km, mins: r.mins, rawMins: r.rawMins || r.mins, best: r.best, twisty: r.twisty, lap: r.lap, near: r.near,
     via: describe(r), roads: (r.roads || []).slice(0,3),
     viaPlaces: (r.viaPlaces || []).map(function(p){
       return {name:p.name, kind:p.kind, lat:+p.lat.toFixed(4), lon:+p.lon.toFixed(4)};
@@ -2477,7 +2520,7 @@ function renderSaved(){
 function openLap(e){
   state.results = [{
     pts: e.pts, km: e.km, mins: e.mins, best: e.best, twisty: e.twisty,
-    lap: e.lap, approach: e.approach, total: 0,
+    lap: e.lap, near: e.near, approach: e.approach, total: 0,
     via: e.via || "", viaPlaces: e.viaPlaces || [], roads: e.roads || []
   }];
   renderTabs();
