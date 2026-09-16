@@ -7,6 +7,41 @@ he can drive round as a circuit, not routes from A to B.
 Deployed as a static site on GitHub Pages. No build step, no server, no
 framework. Push to `main` and it's live.
 
+## Purpose, reframed (2026-09-16)
+
+Started as "find the best closed loop for a time budget." Real driving and
+repeat use exposed the actual job: **never run out of a good reason to go for
+a drive.** That changes what "best" means — not the best lap in isolation, but
+the best lap you haven't already had — and it means saved-lap/driven history
+should stop being a bookmarks list and become the thing the search reasons
+over, so it doesn't keep resurfacing the same greatest hits once the good
+local roads have been found.
+
+The loop itself is an implementation choice (no second car, no plan needed to
+get home), not the identity of the app. A there-and-back or an open route is
+fine wherever it serves "go for a drive" better than a forced closed circuit
+does — that's no longer a bigger call than any other search-behaviour tweak.
+
+**Built (2026-09-17): mood buttons replaced the landing "Find me a drive"
+button.** `Quick hit` / `Clear my head` / `Somewhere new` / `The good stuff`
+in `MOODS` each set duration + reach + `state.freshness` in one tap and search
+immediately — see `pickMood`. Corner style deliberately isn't part of a mood;
+it's a standing taste, not something the reason for the drive should overrule.
+
+`state.freshness` drives `drivenCells` — a "somewhere new" grid built from
+points in laps `driven` in the last `FRESH_DAYS` (60), gridded the same way
+`hazardCells` marks schools and cameras. `makeSearch` builds it once per
+search (only when asked for) and `step()` charges `hazardShare(fresh, r.pts)
+* FRESH_WEIGHT` against `total`, same shape as the doubling-back terms. It's a
+flat cutoff, not a fade — the simple version, on purpose, until it's actually
+been driven with. `FRESH_WEIGHT` (18) is a first guess, not a measurement,
+same caveat as the pace constants.
+
+Options' mins/reach/style chips still exist and still work — a mood just
+presets them and searches; tweaking a chip afterward and hitting `#go` (now
+inside Options only) re-searches with whatever's currently set, freshness
+included, until a different mood is tapped.
+
 ## Files
 
     index.html          markup and all CSS (~17KB)

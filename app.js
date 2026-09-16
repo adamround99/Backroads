@@ -49,7 +49,8 @@ var state = {
   reach: 10,            // miles
   graph: null,          // road network the laps are built from
   graphAt: null,        // centre and radius of the network in hand
-  bounds: null          // what the drawn route spans
+  bounds: null,         // what the drawn route spans
+  freshness: false      // steer away from recently-driven roads (see drivenCells)
 };
 
 var map, tiles, startMarker, lapMarker, routeLine, ghostLine, placeMarks = [];
@@ -728,6 +729,24 @@ function hazardShare(index, pts){
   return hit/samples;
 }
 
+/* "Somewhere new" mode. A road you drove last month isn't new to you even if
+   the search has never seen it before, so a search that only knows the map
+   can't tell fresh from stale on its own — the saved laps are the only record
+   of that. Gridded the same way as hazardCells, from points in laps driven in
+   the last two months; a flat cutoff rather than a fading weight, since that's
+   the simple version and a real one needs driving on before it's worth tuning. */
+var FRESH_DAYS = 60, FRESH_CELL = 200, FRESH_WEIGHT = 18;
+
+function drivenCells(latScale){
+  var laps = loadLaps(), cutoff = Date.now() - FRESH_DAYS*86400000, pts = [], i, j;
+  for (i=0;i<laps.length;i++){
+    var e = laps[i];
+    if (!e.driven || e.driven < cutoff || !e.pts) continue;
+    for (j=0;j<e.pts.length;j++) pts.push(e.pts[j]);
+  }
+  return pts.length ? hazardCells(pts, latScale, FRESH_CELL) : null;
+}
+
 /* Which way you're pointing at each end of a road, measured over the first
    30m so a wiggle at the junction doesn't skew it. */
 function endBearing(pts, fromStart, ls){
@@ -1370,6 +1389,9 @@ function makeSearch(graph, start, targetS, reachM, tries){
      un-corrected first; the comparison afterwards uses corrected time. */
   var walkTarget = targetS / paceFactor();
 
+  // "Somewhere new": built once per search, not per candidate.
+  var fresh = state.freshness ? drivenCells(graph.latScale) : null;
+
   /* Round-robin across start points rather than exhausting each in turn, so
      the first laps to appear come from different parts of the map instead of
      all clustering round whichever junction happened to be first. */
@@ -1407,6 +1429,10 @@ function makeSearch(graph, start, targetS, reachM, tries){
     var off_ = (secs - targetS)/targetS;
     r.total -= (off_ > 0 ? off_*7 : -off_*4);
     r.total -= (job.from.away/1000) * 0.25;                  // shorter drive out
+    if (fresh){
+      r.stale = hazardShare(fresh, r.pts);
+      r.total -= r.stale * FRESH_WEIGHT;
+    }
     if (secs >= targetS*0.75 && secs <= targetS*1.25) on.push(r); else off.push(r);
   }
 
@@ -1459,12 +1485,17 @@ function findCircuitsLive(graph, start, targetS, reachM, tries, onBest, onTick){
 function begin(){
   var btn = document.getElementById("go");
   btn.disabled = true; btn.className = "busy"; btn.textContent = "Searching…";
+  /* Mood buttons stay on screen for the whole search (has-route only flips
+     once results land), so without this a second tap mid-search would start
+     an overlapping one. */
+  document.getElementById("moods").classList.add("busy");
   clearRoutes();
 }
 
 function finish(){
   var btn = document.getElementById("go");
   btn.disabled = false; btn.className = ""; btn.textContent = "Find me a drive";
+  document.getElementById("moods").classList.remove("busy");
 }
 
 function present(found, note){
@@ -1646,8 +1677,14 @@ function escapeText(t){
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-/* The empty Route tab is now the first thing you see, so it states the plan in
-   words rather than making you read three sets of chips to work it out. */
+function markChip(id, value){
+  var box = document.getElementById(id);
+  if (!box) return;
+  Array.prototype.forEach.call(box.querySelectorAll("button"), function(b){
+    b.className = (b.getAttribute("data-v") === String(value)) ? "on" : "";
+  });
+}
+
 /* Put last session's settings back, into the chips as well as the state, so
    the options screen agrees with what the app is about to do. */
 function applyPrefs(){
@@ -1656,38 +1693,41 @@ function applyPrefs(){
   if (p.mins) state.mins = Math.min(p.mins, 60);
   if (typeof p.reach === "number") state.reach = Math.min(p.reach, 10);
   if (p.style) state.style = p.style;
+  if (typeof p.freshness === "boolean") state.freshness = p.freshness;
 
-  function mark(id, value){
-    var box = document.getElementById(id);
-    if (!box) return;
-    Array.prototype.forEach.call(box.querySelectorAll("button"), function(b){
-      b.className = (b.getAttribute("data-v") === String(value)) ? "on" : "";
-    });
-  }
-  mark("mins-chips", state.mins);
-  mark("reach-chips", state.reach);
-  mark("style-chips", state.style);
+  markChip("mins-chips", state.mins);
+  markChip("reach-chips", state.reach);
+  markChip("style-chips", state.style);
 }
 
-/* "1h" is right on a result card next to a number. On the landing screen it's
-   a sentence, and sentences say "an hour". */
-function spoken(mins){
-  var words = {15:"a quarter of an hour", 30:"half an hour",
-               45:"three quarters of an hour", 60:"an hour"};
-  if (words[mins]) return words[mins];
-  if (mins < 60) return mins + " minutes";
-  var h = Math.floor(mins/60), m = mins % 60;
-  return h + (h === 1 ? " hour" : " hours") + (m ? " " + m : "");
+/* Moods are the landing action now — see CLAUDE.md's "Purpose, reframed".
+   Each is a one-tap preset across duration, reach and whether to steer away
+   from recently-driven road. Corner style is deliberately not part of a mood:
+   that's a standing taste, not something the reason for the drive should
+   overrule. */
+var MOODS = {
+  quick: {mins:15, reach:0,  fresh:false},   // a spare 20 minutes, not looking for much
+  clear: {mins:60, reach:5,  fresh:false},   // decompressing — familiar roads are fine
+  fresh: {mins:45, reach:10, fresh:true},    // the point is not driving what you already have
+  best:  {mins:60, reach:10, fresh:false}    // deliberately hand back the known favourite
+};
+
+function pickMood(name){
+  var m = MOODS[name];
+  if (!m) return;
+  state.mins = m.mins; state.reach = m.reach; state.freshness = m.fresh;
+  savePrefs();
+  markChip("mins-chips", state.mins);
+  markChip("reach-chips", state.reach);
+  search();
 }
 
+/* The empty Route tab leads with the mood buttons now; this is just the small
+   prompt sitting above them. */
 function renderPlan(){
   var el = document.getElementById("empty");
   if (!el || state.results.length) return;
-  var reach = state.reach > 0
-    ? "starting within " + state.reach + " miles"
-    : "starting from here";
-  el.textContent = "About " + spoken(state.mins) + " of driving, " + reach +
-                   ". Tap Options to change.";
+  el.textContent = "What's the drive for?";
 }
 
 function markHasRoute(){
@@ -1849,7 +1889,7 @@ function loadPrefs(){
 function savePrefs(){
   try {
     localStorage.setItem(PREF_STORE, JSON.stringify({
-      mins: state.mins, reach: state.reach, style: state.style
+      mins: state.mins, reach: state.reach, style: state.style, freshness: state.freshness
     }));
   } catch(e){}
 }
@@ -2468,8 +2508,8 @@ function init(){
     say("Start moved. Search again from here.");
   });
 
-  wireChips("mins-chips", 0, function(v){ state.mins = +v; savePrefs(); renderPlan(); });
-  wireChips("reach-chips", 0, function(v){ state.reach = +v; savePrefs(); renderPlan(); });
+  wireChips("mins-chips", 0, function(v){ state.mins = +v; savePrefs(); });
+  wireChips("reach-chips", 0, function(v){ state.reach = +v; savePrefs(); });
   wireChips("style-chips", 0, function(v){
     state.style = v; savePrefs();
     if (state.results.length) say("Corner style changed. Search again to pick roads to suit.");
@@ -2479,6 +2519,10 @@ function init(){
 
   document.getElementById("go").addEventListener("click", search);
   document.getElementById("nav").addEventListener("click", navigate);
+  document.getElementById("moods").addEventListener("click", function(e){
+    var b = e.target.closest("button");
+    if (b) pickMood(b.dataset.mood);
+  });
 
   document.getElementById("star").addEventListener("click", function(){
     var r = state.results[state.active];

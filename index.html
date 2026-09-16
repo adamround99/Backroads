@@ -162,6 +162,9 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
 .approach:empty{display:none}
 
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px}
+/* [hidden] alone loses to the display:grid above — same origin, and a plain
+   attribute selector doesn't outrank a class one, so the two need pairing. */
+.stats[hidden]{display:none}
 .stat{background:var(--raised);border-radius:var(--r);padding:11px 12px}
 .stat b{
   display:block;font-family:"Barlow Condensed",Barlow,sans-serif;
@@ -201,14 +204,19 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
    do having set the options; Navigate and save are things you do to a lap you
    already have. Offering both at once made "Find a drive" read as though it
    might replace the lap you were looking at. */
-/* Find a drive is the whole point until there's a lap on screen, so it stays
-   the one big button. Once a lap exists, the Route tab is about that lap and
-   the search moves to Options where changing your mind belongs. */
+/* The moods are the landing action now — no lap yet, so the question is what
+   kind of drive, not "go". Once a lap exists the Route tab is about that lap;
+   #go moves entirely into Options, for re-searching after changing your mind. */
 #sheet.on-route.has-route #go{display:none}
-#sheet.on-route:not(.has-route) #nav,
-#sheet.on-route:not(.has-route) #star{display:none}
 #sheet.on-options #nav,
 #sheet.on-options #star{display:none}
+#sheet.on-route:not(.has-route) #actions{display:none}
+
+#moods{display:none;flex-wrap:wrap}
+#sheet.on-route:not(.has-route) #moods{display:flex}
+#moods button{flex:1 1 calc(50% - 4.5px);background:var(--ink);color:var(--surface);
+  font-size:15px;line-height:1.25;padding:14px 8px;transition:opacity .15s}
+#moods.busy button{opacity:.45;pointer-events:none}
 
 /* ---------- settings ---------- */
 .field{margin-bottom:18px}
@@ -431,7 +439,14 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 
   <div id="calib-slot"></div>
 
-  <div class="row">
+  <div class="row" id="moods">
+    <button class="mood" data-mood="quick">Quick hit</button>
+    <button class="mood" data-mood="clear">Clear my head</button>
+    <button class="mood" data-mood="fresh">Somewhere new</button>
+    <button class="mood" data-mood="best">The good stuff</button>
+  </div>
+
+  <div class="row" id="actions">
     <button id="go">Find me a drive</button>
     <button id="nav" disabled>Navigate</button>
     <button id="star" disabled aria-label="Save this lap" aria-pressed="false">
