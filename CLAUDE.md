@@ -42,6 +42,23 @@ presets them and searches; tweaking a chip afterward and hitting `#go` (now
 inside Options only) re-searches with whatever's currently set, freshness
 included, until a different mood is tapped.
 
+Once a lap exists, "Change mood" (`#remood`) sits beside Navigate/Star and
+stays there — tapping it swaps the mood grid back in (with a "Back to this
+lap" button to cancel out, nothing lost) rather than losing the lap on the
+way back to Options. The result tabs that used to let you compare 5
+candidates are gone — `present()` now keeps only the top-scoring lap (see
+2026-09-17 commits); `whyPicked()`/`renderWhy()` names the trait(s) that
+actually drove the score plus how many attempts it beat, since dropping the
+comparison meant losing the "why this one" signal too.
+
+**Weather (2026-09-17) is a nudge, not a search input.** `fetchWeather` calls
+Open-Meteo (free, keyless — matches the no-account/no-server approach
+everywhere else) whenever `setStart` runs, and shows a plain "9°C, clear —
+good for a drive" line on the landing screen only. It never touches scoring.
+The URL is bucketed by hour (`_h=`) purely so `sw.js`'s cache-first handling
+of GET requests refreshes it hourly instead of serving one stale reading
+forever from the same rough spot.
+
 ## Files
 
     index.html          markup and all CSS (~17KB)

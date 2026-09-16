@@ -1514,7 +1514,9 @@ function finish(){
 function present(found, note){
   if (!found.length) throw new Error(note || "Nothing came back. Try a different length or start point.");
   found.sort(function(a,b){ return b.total - a.total; });
-  state.results = found.slice(0,1);
+  var best = found[0];
+  best.pool = found.length;   // for renderWhy() — dropped the 5-tab compare, kept the reason
+  state.results = [best];
   show(0);
 }
 
@@ -1630,6 +1632,7 @@ function clearRoutes(){
   document.getElementById("readout").hidden = true;
   state.bounds = null;
   document.getElementById("empty").hidden = false;
+  document.getElementById("weather").hidden = false;
   document.getElementById("nav").disabled = true;
   syncStar();
 }
@@ -1811,6 +1814,29 @@ function renderVia(r){
   }
 }
 
+/* Dropping the 5-lap tabs meant losing any sense of why this one won. This
+   doesn't bring the comparison back, just names the one or two things that
+   actually drove the score, plus the field it beat — enough to trust the
+   pick without re-litigating it. */
+function whyPicked(r){
+  var bits = [];
+  if (r.best >= 3) bits.push(r.best.toFixed(1) + " miles of continuous cornering");
+  else if (r.twisty >= 0.55) bits.push(Math.round(r.twisty*100) + "% of it cornering");
+  if (typeof r.stale === "number" && r.stale < 0.1) bits.push("roads you haven't driven recently");
+  if (Math.max(r.lap*2, r.near || 0) < 0.02) bits.push("almost no doubling back");
+
+  var text = bits.length ? "Picked for " + sentence(bits) : "";
+  if (r.pool > 1){
+    text += (text ? " — beat " : "Beat ") + (r.pool-1) + " other attempt" + (r.pool-1 === 1 ? "" : "s") + ".";
+  } else if (text) text += ".";
+  return text;
+}
+
+function renderWhy(r){
+  var el = document.getElementById("why");
+  if (el) el.textContent = whyPicked(r);
+}
+
 function show(i, keepView){
   var r = state.results[i];
   if (!r) return;
@@ -1834,6 +1860,7 @@ function show(i, keepView){
   drawLabels();
 
   document.getElementById("empty").hidden = true;
+  document.getElementById("weather").hidden = true;
   document.getElementById("readout").hidden = false;
   document.getElementById("km").innerHTML = Math.round(r.km*MI) + "<span>mi</span>";
   document.getElementById("dur").textContent = clock(r.mins);
@@ -1863,6 +1890,7 @@ function show(i, keepView){
   document.getElementById("nav").disabled = false;
   markHasRoute();
   renderVia(r);
+  renderWhy(r);
   syncStar();
   if (optionsOpen) showOptions(false);
 }
@@ -2437,6 +2465,43 @@ function centreOn(lat, lng, zoom){
   map.setView(map.unproject(pt, z), z);
 }
 
+/* ---------- weather ----------
+
+   A nudge, not a search input. Open-Meteo is free and keyless, which matches
+   everything else here: no account, no server. "It's clear right now" is as
+   real a reason to go for a drive as any mood button — this never touches
+   scoring, and asks for nothing if it fails or is slow. */
+
+var WEATHER_WORDS = {
+  0:"clear", 1:"mostly clear", 2:"partly cloudy", 3:"cloudy",
+  45:"foggy", 48:"foggy",
+  51:"light drizzle", 53:"drizzle", 55:"heavy drizzle",
+  61:"light rain", 63:"rain", 65:"heavy rain",
+  71:"light snow", 73:"snow", 75:"heavy snow",
+  80:"showers", 81:"showers", 82:"heavy showers",
+  95:"thunderstorms"
+};
+var WEATHER_GOOD = {0:1, 1:1, 2:1, 3:1};   // no precipitation, just cloud cover
+
+function weatherPhrase(code, tempC){
+  var w = WEATHER_WORDS[code] || "mixed conditions";
+  return Math.round(tempC) + "°C, " + w + (WEATHER_GOOD[code] ? " — good for a drive" : "");
+}
+
+function fetchWeather(lat, lng){
+  var el = document.getElementById("weather");
+  if (!el) return;
+  // Coarse location + an hourly bucket: sw.js caches GETs, so this keeps one
+  // fetch an hour per rough area instead of fighting the cache on every call.
+  var hour = Math.floor(Date.now() / 3600000);
+  var url = "https://api.open-meteo.com/v1/forecast?latitude=" + lat.toFixed(2)
+    + "&longitude=" + lng.toFixed(2) + "&current=temperature_2m,weather_code"
+    + "&timezone=auto&_h=" + hour;
+  fetch(url).then(function(r){ return r.ok ? r.json() : null; }).then(function(j){
+    if (j && j.current) el.textContent = weatherPhrase(j.current.weather_code, j.current.temperature_2m);
+  })["catch"](function(){ /* offline, or the service is down — say nothing */ });
+}
+
 function setStart(lat, lng, recentre){
   state.start = {lat:lat, lng:lng};
   if (startMarker) startMarker.setLatLng([lat,lng]);
@@ -2444,6 +2509,7 @@ function setStart(lat, lng, recentre){
     icon: L.divIcon({className:"", html:'<div class="start-dot"></div>', iconSize:[16,16], iconAnchor:[8,8]})
   }).addTo(map);
   if (recentre) centreOn(lat, lng, 12);
+  fetchWeather(lat, lng);
 }
 
 function init(){
