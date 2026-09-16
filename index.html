@@ -286,6 +286,7 @@ details[open] summary::before{content:"\2212 "}
 }
 .calib button.ghost{background:transparent;color:var(--muted)}
 #pace-note{margin:0 0 8px;font-size:14px;color:var(--muted);line-height:1.45}
+.hint{margin:8px 0 0;font-size:13.5px;color:var(--muted);line-height:1.45}
 .ghost-btn{
   border:1px solid var(--line);background:transparent;color:var(--muted);
   border-radius:var(--pill);padding:7px 14px;
@@ -420,6 +421,16 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
     </div>
 
     <div class="field">
+      <label>Road network</label>
+      <div class="chips" id="net-chips">
+        <button data-v="off" class="on">Hidden</button>
+        <button data-v="on">Show roads</button>
+      </div>
+      <p class="hint">Draws every road the search is allowed to use. If a lane
+      you expected isn't there, it was filtered out — not ignored.</p>
+    </div>
+
+    <div class="field">
       <label>Pace</label>
       <p id="pace-note"></p>
       <button id="pace-reset" class="ghost-btn" hidden>Forget my timings</button>
@@ -494,6 +505,7 @@ var state = {
   active: -1,
   style: "tight",
   mins: 60,             // how long you want to be out
+  showNet: false,       // draw the road network the search can see
   reach: 10,            // miles
   graph: null,          // road network the laps are built from
   graphAt: null,        // centre and radius of the network in hand
@@ -965,6 +977,7 @@ function ensureGraph(start, radius){
       state.graph = hit;
       state.graphAt = {lat:start.lat, lng:start.lng, radius:hit.radius || radius};
       say("Using the roads already on your phone.");
+      drawNetwork();
       return hit;
     }
     /* Fetch a little wider than asked. GPS never returns the same coordinates
@@ -994,6 +1007,7 @@ function fetchAndBuild(start, radius){
     state.graph = g;
     state.graphAt = {lat:start.lat, lng:start.lng, radius:radius};
     storeGraph(start.lat, start.lng, radius, g);   // fire and forget
+    drawNetwork();
     return g;
   });
 }
@@ -2136,6 +2150,39 @@ function drawLabels(){
   });
 }
 
+/* ---------- seeing what the search can see ----------
+
+   Whether a missing connection is a filtering problem or a scoring one can't
+   be told from a satellite image, and the two need opposite fixes. So: draw
+   the graph. Canvas rather than SVG, because a 27km radius is thousands of
+   segments and the DOM would not enjoy that. */
+var netLayer = null;
+
+function drawNetwork(){
+  if (netLayer){ map.removeLayer(netLayer); netLayer = null; }
+  if (!state.showNet || !state.graph || !map) return;
+
+  var css = getComputedStyle(document.body);
+  var ink = css.getPropertyValue("--ink").trim() || "#111";
+  var acc = css.getPropertyValue("--accent").trim() || "#FF5A1F";
+  var canvas = L.canvas({padding: 0.3});
+  var lines = [], e, i;
+
+  for (i=0;i<state.graph.edges.length;i++){
+    e = state.graph.edges[i];
+    var dull = (e.cls === "residential" || e.cls === "living_street" ||
+                e.cls === "service" || e.cls === "track");
+    lines.push(L.polyline(e.pts.map(function(p){ return [p[1], p[0]]; }), {
+      renderer: canvas, interactive: false,
+      color: dull ? ink : acc,
+      weight: dull ? 1 : 1.6,
+      opacity: dull ? 0.22 : 0.42
+    }));
+  }
+  netLayer = L.layerGroup(lines).addTo(map);
+  if (netLayer.bringToBack) netLayer.bringToBack();
+}
+
 function renderVia(r){
   var el = document.getElementById("via");
   var via = describe(r), roads = roadsLine(r);
@@ -2724,6 +2771,14 @@ function init(){
   wireChips("style-chips", 0, function(v){
     state.style = v; savePrefs();
     if (state.results.length) say("Corner style changed. Search again to pick roads to suit.");
+  });
+
+  wireChips("net-chips", 0, function(v){
+    state.showNet = (v === "on");
+    drawNetwork();
+    say(state.showNet
+      ? "Orange is fair game, grey is built-up. Anything missing was filtered out."
+      : "");
   });
 
   applyPrefs();
