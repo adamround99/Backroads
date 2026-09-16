@@ -1914,11 +1914,6 @@ function addPaceSample(ratio){
   paceCache = null;
 }
 
-function clearPace(){
-  try { localStorage.removeItem(PACE_STORE); } catch(e){}
-  paceCache = null;
-}
-
 /* Median, not mean: one drive where you stopped for fuel shouldn't drag
    every future estimate with it. Clamped, because a mistyped number
    shouldn't be able to break the app's sense of time either. */
@@ -2054,7 +2049,6 @@ function askActual(e){
   say(off === 0 ? "Spot on. Estimates unchanged."
     : "Noted. Estimates now run " + Math.abs(off) + "% " +
       (off > 0 ? "longer" : "shorter") + " to match you.");
-  renderPace();
   renderSaved();
 }
 
@@ -2066,26 +2060,6 @@ function pendingLap(list){
     if (e.driven && !e.actual && e.actual !== -1 && (e.rawMins || e.mins)) return e;
   }
   return null;
-}
-
-function renderPace(){
-  var note = document.getElementById("pace-note");
-  var reset = document.getElementById("pace-reset");
-  if (!note) return;
-  var n = paceSamples().length;
-  if (!n){
-    note.textContent = "Estimates come from road shape and speed limits alone. " +
-      "Time a lap you've driven and they'll adjust to how you actually drive.";
-    reset.hidden = true;
-    return;
-  }
-  var off = Math.round((paceFactor() - 1) * 100);
-  note.textContent = (off === 0
-      ? "Matching your drives exactly"
-      : "Estimates run " + Math.abs(off) + "% " + (off > 0 ? "longer" : "shorter") +
-        " than the road shape alone suggests")
-    + ", from " + n + (n === 1 ? " timed lap." : " timed laps.");
-  reset.hidden = false;
 }
 
 function renderSaved(){
@@ -2529,15 +2503,7 @@ function init(){
     syncStar();
   });
 
-  renderPace();
   renderPlan();
-
-  document.getElementById("pace-reset").addEventListener("click", function(){
-    if (!confirm("Forget your timings and go back to the default estimates?")) return;
-    clearPace();
-    renderPace(); renderSaved();
-    say("Timings cleared.");
-  });
 
   renderSaved();
   wireSheet();

@@ -2,7 +2,7 @@ const fs=require('fs'); const src=fs.readFileSync(__dirname+'/../app.js','utf8')
 let stored={};
 global.localStorage={getItem:k=>stored[k]||null,setItem:(k,v)=>stored[k]=v,removeItem:k=>delete stored[k]};
 const vm=require('vm');
-["paceSamples","addPaceSample","clearPace","paceFactor"].forEach(n=>{
+["paceSamples","addPaceSample","paceFactor"].forEach(n=>{
   const m=src.match(new RegExp("function "+n+"\\([\\s\\S]*?\\n\\}"));
   vm.runInThisContext(m[0]);
 });
