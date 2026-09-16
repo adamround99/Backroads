@@ -1,0 +1,19 @@
+/* Barlow, served from this site rather than Google's CDN.
+
+   Two reasons. A page sitting on disk that pulls resources off the internet is
+   the shape Defender flags as MalUri, and a remote font is one more thing that
+   isn't there when you open the app with no signal. */
+
+@font-face{font-family:Barlow;font-style:normal;font-weight:400;font-display:swap;
+  src:url(./fonts/barlow-latin-400-normal.woff2) format('woff2')}
+@font-face{font-family:Barlow;font-style:normal;font-weight:500;font-display:swap;
+  src:url(./fonts/barlow-latin-500-normal.woff2) format('woff2')}
+@font-face{font-family:Barlow;font-style:normal;font-weight:600;font-display:swap;
+  src:url(./fonts/barlow-latin-600-normal.woff2) format('woff2')}
+
+@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:500;font-display:swap;
+  src:url(./fonts/barlow-condensed-latin-500-normal.woff2) format('woff2')}
+@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:600;font-display:swap;
+  src:url(./fonts/barlow-condensed-latin-600-normal.woff2) format('woff2')}
+@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:700;font-display:swap;
+  src:url(./fonts/barlow-condensed-latin-700-normal.woff2) format('woff2')}

@@ -8,7 +8,7 @@
 
    Bump VERSION to force everyone onto new code. */
 
-var VERSION = "backroads-v2";   // bumped: new icons, same filenames
+var VERSION = "backroads-v4";   // bumped: Leaflet and fonts now served locally
 var SHELL   = VERSION + "-shell";
 var TILES   = VERSION + "-tiles";
 var TILE_CAP = 1200;                 // roughly 60-80 MB of retina PNGs
@@ -16,12 +16,20 @@ var TILE_CAP = 1200;                 // roughly 60-80 MB of retina PNGs
 var SHELL_FILES = [
   "./",
   "./index.html",
+  "./app.js",
   "./manifest.webmanifest",
   "./app/icon-180.png",
   "./app/icon-192.png",
   "./app/icon-512.png",
-  "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css",
-  "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
+  "./vendor/leaflet.css",
+  "./vendor/leaflet.js",
+  "./vendor/fonts.css",
+  "./vendor/fonts/barlow-latin-400-normal.woff2",
+  "./vendor/fonts/barlow-latin-500-normal.woff2",
+  "./vendor/fonts/barlow-latin-600-normal.woff2",
+  "./vendor/fonts/barlow-condensed-latin-500-normal.woff2",
+  "./vendor/fonts/barlow-condensed-latin-600-normal.woff2",
+  "./vendor/fonts/barlow-condensed-latin-700-normal.woff2"
 ];
 
 self.addEventListener("install", function(e){
