@@ -314,6 +314,21 @@ details[open] summary::before{content:"\2212 "}
   #splash-dot,#splash p{animation:none;opacity:1}
 }
 
+/* An indeterminate stripe, because the wait genuinely has no known length. */
+#go.busy{
+  background:var(--raised);color:var(--muted);position:relative;overflow:hidden;
+}
+#go.busy::after{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb, var(--route) 30%, transparent),transparent);
+  transform:translateX(-100%);
+  animation:sweepbar 1.25s linear infinite;
+}
+@keyframes sweepbar{to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){
+  #go.busy::after{animation:none}
+}
+
 body.offline #go{opacity:.45}
 body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 
@@ -831,6 +846,53 @@ function storeGraph(lat, lng, radius, graph){
       tx.oncomplete = function(){ db.close(); };
     });
   })["catch"](function(){});                     // never let a cache failure break a search
+}
+
+/* ---------- showing the wait ----------
+
+   Reading the map is nearly all of it, and there are no roads to draw yet, so
+   the honest thing to show is the area being read: a ring at the true fetch
+   radius with a sweep expanding through it. It isn't a progress bar, because
+   Overpass gives no progress — it says what's happening and where. */
+
+var sweepRing = null, sweepPulse = null, sweepTimer = null;
+
+function startSweep(at, radius){
+  stopSweep();
+  if (!map || !at) return;
+
+  var colour = getComputedStyle(document.body).getPropertyValue("--route").trim() || "#3D5AFE";
+
+  sweepRing = L.circle([at.lat, at.lng], {
+    radius: radius, interactive: false, fill: false,
+    color: colour, weight: 1.5, opacity: .35, dashArray: "5 7"
+  }).addTo(map);
+
+  sweepPulse = L.circle([at.lat, at.lng], {
+    radius: 0, interactive: false,
+    color: colour, weight: 2, opacity: .8,
+    fillColor: colour, fillOpacity: .07
+  }).addTo(map);
+
+  /* setStyle rather than touching the element: it's the documented way to
+     restyle a path, and doesn't depend on the SVG node being reachable. */
+  var born = Date.now(), CYCLE = 2200;
+  function tick(){
+    if (!sweepPulse) return;
+    var f = ((Date.now() - born) % CYCLE) / CYCLE;
+    var fade = Math.max(0, 1 - f);
+    sweepPulse.setRadius(radius * f);
+    sweepPulse.setStyle({opacity: fade * 0.85, fillOpacity: fade * 0.10});
+    sweepTimer = requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function stopSweep(){
+  if (sweepTimer) cancelAnimationFrame(sweepTimer);
+  sweepTimer = null;
+  if (sweepRing){ map.removeLayer(sweepRing); sweepRing = null; }
+  if (sweepPulse){ map.removeLayer(sweepPulse); sweepPulse = null; }
 }
 
 function breathe(){
@@ -1761,7 +1823,11 @@ function searchCircuit(mins){
 
   var t0 = Date.now(), tFetch = 0;
 
+  startSweep(state.start, radius);
+  frameArea(state.start, radius);
+
   return ensureGraph(state.start, radius).then(function(graph){
+    stopSweep();
     tFetch = Date.now() - t0;
     if (graph.edges.length < 30)
       throw new Error("Not enough connected road around here to build a lap. Try starting somewhere less built up.");
@@ -1818,7 +1884,7 @@ function search(){
   begin();
   searchCircuit(state.mins)
     .catch(function(err){ say(err.message, true); })
-    .then(finish);
+    .then(function(){ stopSweep(); finish(); });
 }
 
 /* ---------- display ---------- */
@@ -2428,6 +2494,17 @@ function showOptions(on){
 /* How much of the screen the panel is covering. */
 function sheetCover(){
   return document.getElementById("sheet").offsetHeight;
+}
+
+/* Show the whole area being read, in the map you can actually see. */
+function frameArea(at, radius){
+  if (!map || !at) return;
+  var ls = 111320 * Math.cos(at.lat * Math.PI/180);
+  var dLat = radius/110540, dLng = radius/ls;
+  map.fitBounds([[at.lat-dLat, at.lng-dLng], [at.lat+dLat, at.lng+dLng]], {
+    paddingTopLeft: [24, 24],
+    paddingBottomRight: [24, sheetCover() + 16]
+  });
 }
 
 function frameRoute(bounds){
