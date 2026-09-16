@@ -74,6 +74,15 @@ the splash screen mark (inherits `--route` for free), and the timing-prompt
 button. `--accent` (start marker, favourites, orange) is unchanged — it needs
 to contrast against the route colour, not match it.
 
+**Place-label collisions (found on a real drive, pre-dates today's changes):**
+`drawLabels()`'s clash check compared label *dots* against a flat 96px
+threshold, blind to how wide the rendered pill actually is — "Harborough
+Magna" is nearly twice the box width of "Brinklow", so two dots that passed
+as "far enough apart" still overlapped once drawn. `labelWidth()` now
+estimates each pill's width from its name length and sizes the check
+per-pair instead of using one constant. Still an estimate, not a DOM
+measurement — good enough given the nudge-and-drop fallback already there.
+
 ## Files
 
     index.html          markup and all CSS (~17KB)

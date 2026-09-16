@@ -1757,9 +1757,19 @@ function drawLabels(){
     return (rank[a.kind]||9) - (rank[b.kind]||9);
   });
 
+  /* A flat distance check let a long name pass as "far enough" from its
+     neighbour by dot position alone, then overlap it anyway once drawn —
+     "Harborough Magna" is nearly twice the box width of "Brinklow". Rough
+     estimate of the pill's rendered width stands in for measuring the actual
+     (not-yet-added) DOM node: dot + gap + padding, then Barlow Condensed
+     semibold at 15px with letter-spacing, about 8.6px/character. */
+  function labelWidth(name){ return 34 + name.length * 8.6; }
+
   order.forEach(function(p){
     var pt = map.latLngToContainerPoint([p.lat, p.lon]);
     if (pt.x < 8 || pt.x > size.x - 8 || pt.y < 8 || pt.y > free - 8) return;
+
+    var w = labelWidth(p.name);
 
     /* Try to keep a label rather than drop it: nudge it up or down a line or
        two first, and only give up if every offset still collides. Dropping
@@ -1769,12 +1779,13 @@ function drawLabels(){
       var y = pt.y + nudges[n], clash = false;
       if (y < 8 || y > free - 8) continue;
       for (var t=0;t<taken.length;t++){
-        if (Math.abs(taken[t].x - pt.x) < 96 && Math.abs(taken[t].y - y) < 26){ clash = true; break; }
+        var minDist = (taken[t].w + w) / 2 + 12;   // half each box, plus a gap
+        if (Math.abs(taken[t].x - pt.x) < minDist && Math.abs(taken[t].y - y) < 26){ clash = true; break; }
       }
       if (!clash) dy = nudges[n];
     }
     if (dy === null) return;
-    taken.push({x: pt.x, y: pt.y + dy});
+    taken.push({x: pt.x, y: pt.y + dy, w: w});
 
     // Put the text on whichever side has more room, so it can't run off-screen.
     var flip = pt.x > size.x * 0.62;
