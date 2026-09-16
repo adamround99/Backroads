@@ -1303,6 +1303,24 @@ function placesAlong(places, pts, latScale){
   return out;
 }
 
+/* PLACE_REACH decides what's fair to call out in a sentence — generous, on
+   purpose, since "through Southam" is a reasonable claim from its edge. A map
+   pin has no such slack: a village a field away reads fine in words but,
+   pinned at its true spot, just looks like a dot floating off the drawn line.
+   So the pin gets its own flat, tight distance to the actual route geometry,
+   not the size-scaled reach used for the words. */
+var MAP_PIN_REACH = 350;
+
+function nearRoute(p, pts, latScale){
+  var best = Infinity;
+  for (var i=0;i<pts.length;i++){
+    var dx = (p.lon - pts[i][0]) * latScale, dy = (p.lat - pts[i][1]) * 110540;
+    var d = dx*dx + dy*dy;
+    if (d < best) best = d;
+  }
+  return best <= MAP_PIN_REACH*MAP_PIN_REACH;
+}
+
 /* Too many names is as unhelpful as none. Keep the ends — where you start and
    the furthest point are the ones that place the drive — and thin the middle,
    preferring bigger settlements. */
@@ -1884,7 +1902,8 @@ function show(i, keepView){
      describe() must run before this, not after: it's what works the list out,
      and reading it first left every lap unlabelled until its second viewing. */
   describe(r);
-  labelPlaces = r.viaPlaces || [];
+  var ls = 111320 * Math.cos(r.pts[0][1] * Math.PI/180);
+  labelPlaces = (r.viaPlaces || []).filter(function(p){ return nearRoute(p, r.pts, ls); });
 
   if (lapMarker){ map.removeLayer(lapMarker); lapMarker = null; }
   if (away > 0.6){

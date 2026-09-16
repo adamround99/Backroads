@@ -83,6 +83,17 @@ estimates each pill's width from its name length and sizes the check
 per-pair instead of using one constant. Still an estimate, not a DOM
 measurement — good enough given the nudge-and-drop fallback already there.
 
+**Place-label distance from the route (also found on a real drive):** a place
+pinned on the map could be nowhere near the drawn line — `PLACE_REACH` (up to
+1500m for a town) decides what's fair to call "through Southam" in a
+sentence, and that's deliberately generous, but reused as-is for the map pin
+it just looked like a dot floating off the route. `nearRoute()` adds a flat
+350m check against the actual route geometry (not the coarse sample points
+`placesAlong` walks) that only gates which places get a pin — the sentence
+still uses the original generous `PLACE_REACH`, since a place can fairly be
+"gone through" in words without earning a pin that has to look attached to
+the line.
+
 ## Files
 
     index.html          markup and all CSS (~17KB)
