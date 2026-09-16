@@ -210,7 +210,14 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
 #sheet.on-route:not(.has-route) #nav,
 #sheet.on-route:not(.has-route) #star{display:none}
 #sheet.on-options #nav,
+#sheet.on-options #gpx,
 #sheet.on-options #star{display:none}
+#sheet.on-route:not(.has-route) #gpx{display:none}
+#gpx{
+  flex:0 0 auto;padding:0 14px;
+  font-family:"Barlow Condensed",Barlow,sans-serif;
+  font-weight:600;font-size:14px;letter-spacing:.06em;
+}
 
 /* ---------- settings ---------- */
 .field{margin-bottom:18px}
@@ -273,6 +280,26 @@ details[open] summary::before{content:"\2212 "}
 /* Offline: the search button is the one thing that genuinely can't work,
    so it's the one thing that looks disabled. Everything else stays live. */
 /* The nudge to time a driven lap, and the pace readout. */
+#drive{
+  display:flex;align-items:center;gap:8px;margin-top:14px;
+  background:var(--raised);border:1px solid var(--line);
+  border-radius:var(--r);padding:10px 12px;
+}
+#leg-count{flex:1;font-weight:600;font-size:14px;color:var(--ink)}
+#drive button{
+  border:0;border-radius:var(--pill);padding:8px 14px;
+  font-family:inherit;font-size:13.5px;font-weight:600;
+  background:var(--route);color:#fff;
+}
+#drive button.ghost{background:transparent;color:var(--muted);padding:8px 10px}
+.leg-dot{
+  width:22px;height:22px;border-radius:50%;
+  background:var(--accent);border:3px solid var(--surface);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+/* Mid-lap, searching again is not what you want in front of you. */
+#sheet.driving #go{display:none}
+
 .calib{
   display:flex;align-items:center;gap:8px;flex-wrap:wrap;
   background:var(--raised);border:1px solid var(--line);
@@ -421,6 +448,15 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
     </div>
 
     <div class="field">
+      <label>Handoff</label>
+      <div class="chips" id="mode-chips">
+        <button data-v="legs" class="on">Leg by leg</button>
+        <button data-v="whole">Whole lap</button>
+      </div>
+      <p class="hint" id="mode-hint"></p>
+    </div>
+
+    <div class="field">
       <label>Road network</label>
       <div class="chips" id="net-chips">
         <button data-v="off" class="on">Hidden</button>
@@ -438,11 +474,19 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 
   </div>
 
+  <div id="drive" hidden>
+    <span id="leg-count"></span>
+    <button id="leg-open">Open</button>
+    <button id="leg-next">Arrived →</button>
+    <button id="leg-stop" class="ghost" aria-label="Stop driving">✕</button>
+  </div>
+
   <div id="calib-slot"></div>
 
   <div class="row">
     <button id="go">Find me a drive</button>
-    <button id="nav" disabled>Navigate</button>
+    <button id="nav" disabled>Drive it</button>
+    <button id="gpx" disabled aria-label="Download as GPX">GPX</button>
     <button id="star" disabled aria-label="Save this lap" aria-pressed="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg>
     </button>
@@ -506,6 +550,8 @@ var state = {
   style: "tight",
   mins: 60,             // how long you want to be out
   showNet: false,       // draw the road network the search can see
+  navMode: "legs",      // whole lap in one handoff, or leg by leg
+  legs: null,
   reach: 10,            // miles
   graph: null,          // road network the laps are built from
   graphAt: null,        // centre and radius of the network in hand
@@ -2052,6 +2098,7 @@ function applyPrefs(){
   if (p.mins) state.mins = Math.min(p.mins, 90);
   if (typeof p.reach === "number") state.reach = Math.min(p.reach, 10);
   if (p.style) state.style = p.style;
+  if (p.navMode) state.navMode = p.navMode;
 
   function mark(id, value){
     var box = document.getElementById(id);
@@ -2063,6 +2110,8 @@ function applyPrefs(){
   mark("mins-chips", state.mins);
   mark("reach-chips", state.reach);
   mark("style-chips", state.style);
+  mark("mode-chips", state.navMode);
+  renderMode();
 }
 
 /* "1h" is right on a result card next to a number. On the landing screen it's
@@ -2256,6 +2305,8 @@ function show(i, keepView){
   document.getElementById("s-back").textContent =
     Math.round(Math.min(1, Math.max(r.lap*2, r.near || 0))*100) + "%";
   document.getElementById("nav").disabled = false;
+  document.getElementById("gpx").disabled = false;
+  renderDrive();
   markHasRoute();
   renderVia(r);
   syncStar();
@@ -2278,7 +2329,8 @@ function loadPrefs(){
 function savePrefs(){
   try {
     localStorage.setItem(PREF_STORE, JSON.stringify({
-      mins: state.mins, reach: state.reach, style: state.style
+      mins: state.mins, reach: state.reach, style: state.style,
+      navMode: state.navMode
     }));
   } catch(e){}
 }
@@ -2588,10 +2640,227 @@ function syncStar(){
 
 /* ---------- exports ---------- */
 
-/* Google Maps takes 8 waypoints, so the loop gets pinned down to
-   its 8 most useful points. It will smooth the gaps its own way. */
-/* Google Maps takes 8 waypoints. Send it out to the lap first, then round it,
-   finishing back where the lap began. It smooths the gaps its own way. */
+/* Google Maps is a destination router, not a route follower: it takes a
+   handful of waypoints and decides for itself how to join them. Spacing those
+   waypoints evenly along the lap — as this used to — pins nothing that
+   matters, so between two pins it takes whatever main road it prefers and the
+   lap you actually get is not the lap on screen.
+
+   Picking them by shape instead forces its hand. Repeatedly split the route at
+   whichever point sits furthest from the straight line joining its neighbours,
+   and you end up with the pins that define the loop's corners — the exact
+   places Google would otherwise cut. It's Douglas-Peucker, chosen to a fixed
+   budget rather than a tolerance. */
+function shapePoints(pts, want){
+  var n = pts.length;
+  if (n <= want) return pts.map(function(_, i){ return i; });
+
+  function dev(a, b){
+    // furthest point from the chord a..b, and how far off it sits
+    var ax = pts[a][0], ay = pts[a][1], bx = pts[b][0], by = pts[b][1];
+    var dx = bx-ax, dy = by-ay, len = Math.sqrt(dx*dx + dy*dy);
+    var best = -1, bestD = -1;
+    for (var i=a+1;i<b;i++){
+      var d;
+      if (len < 1e-9){
+        d = Math.hypot(pts[i][0]-ax, pts[i][1]-ay);
+      } else {
+        d = Math.abs((pts[i][0]-ax)*dy - (pts[i][1]-ay)*dx) / len;
+      }
+      if (d > bestD){ bestD = d; best = i; }
+    }
+    return {at: best, d: bestD};
+  }
+
+  /* A lap ends where it starts, so the chord from first to last is a point
+     and the split has to be seeded with the far side of the loop. */
+  var far = 0, farD = -1;
+  for (var i=1;i<n;i++){
+    var d = Math.hypot(pts[i][0]-pts[0][0], pts[i][1]-pts[0][1]);
+    if (d > farD){ farD = d; far = i; }
+  }
+
+  var keep = [0, far, n-1];
+  var segs = [dev(0, far), dev(far, n-1)];
+  var bounds = [[0, far], [far, n-1]];
+
+  while (keep.length < want){
+    var pick = -1, pickD = 0;
+    for (i=0;i<segs.length;i++) if (segs[i] && segs[i].at > 0 && segs[i].d > pickD){
+      pickD = segs[i].d; pick = i;
+    }
+    if (pick < 0) break;
+
+    var at = segs[pick].at, lo = bounds[pick][0], hi = bounds[pick][1];
+    keep.push(at);
+    segs.splice(pick, 1, dev(lo, at), dev(at, hi));
+    bounds.splice(pick, 1, [lo, at], [at, hi]);
+  }
+
+  return keep.sort(function(a,b){ return a-b; });
+}
+
+/* Google will always smooth between pins. Apps that follow a track — OsmAnd,
+   Kurviger, Calimoto, Scenic, a Garmin — take the lap exactly as found, which
+   for a route chosen road by road is the only faithful way out of here. */
+function exportGpx(){
+  var r = state.results[state.active];
+  if (!r) return;
+
+  var saved = findLap(lapId(r));
+  var name = (saved && saved.name) || (r.anchor ? r.anchor + " loop" : "Backroads lap");
+
+  var head = '<?xml version="1.0" encoding="UTF-8"?>\n'
+    + '<gpx version="1.1" creator="Backroads" xmlns="http://www.topografix.com/GPX/1/1">\n'
+    + '<metadata><name>' + escapeText(name) + '</name></metadata>\n'
+    + '<trk><name>' + escapeText(name) + '</name><trkseg>\n';
+
+  var body = "";
+  for (var i=0;i<r.pts.length;i++){
+    body += '<trkpt lat="' + r.pts[i][1].toFixed(6) + '" lon="' + r.pts[i][0].toFixed(6) + '"/>\n';
+  }
+
+  var blob = new Blob([head + body + '</trkseg></trk></gpx>\n'],
+                      {type: "application/gpx+xml"});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".gpx";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+
+  saveLap(r, false);
+  say("Saved as GPX. Open it in a route-following app for the exact lap.");
+}
+
+/* ---------- driving it leg by leg ----------
+
+   None of the three big apps can follow a route. Apple Maps takes a start and
+   a destination and nothing else; Waze takes one destination and errors on
+   more; Google takes three waypoints from a mobile browser and nine elsewhere,
+   which is why sending eight produced a route nobody recognised.
+
+   What they can all do faithfully is "drive to this point". So the lap is cut
+   into legs short enough that there's only one sensible road between each
+   pair, and you take them one at a time. Same trick MultiStopWaze uses, for
+   the same reason. */
+
+var LEG_MILES = 2.2;        // short enough to force the road, long enough not to nag
+
+function legPoints(r){
+  var want = Math.max(4, Math.min(14, Math.round((r.km * MI) / LEG_MILES)));
+  var idx = shapePoints(r.pts, want);
+  var out = [];
+  for (var i=0;i<idx.length;i++){
+    if (idx[i] === 0) continue;                   // the lap's own start
+    out.push(r.pts[idx[i]]);
+  }
+  if (!out.length || out[out.length-1] !== r.pts[r.pts.length-1]) {
+    out.push(r.pts[r.pts.length-1]);              // finish where you began
+  }
+  return out;
+}
+
+function renderMode(){
+  var hint = document.getElementById("mode-hint");
+  if (!hint) return;
+  hint.textContent = state.navMode === "whole"
+    ? "One handoff, no coming back. Google gets nine pins and joins them its own "
+      + "way, so it may cut a corner. Needs the Google Maps app installed — "
+      + "without it the link opens in the browser, which takes only three."
+    : "You'll return here at each leg, but the road you drive is the road on screen.";
+}
+
+/* Google only. Apple Maps takes no waypoints at all and Waze errors on more
+   than one, so neither could ever carry a lap — and a google.com link is the
+   one handoff that can't dead-end: with no app installed it opens the web
+   version instead of doing nothing. */
+function navUrl(pt){
+  var ll = pt[1].toFixed(5) + "," + pt[0].toFixed(5);
+  /* No origin, so it defaults to where the phone is — which is what makes
+     dir_action=navigate start turn-by-turn rather than a route preview. */
+  return "https://www.google.com/maps/dir/?api=1&destination=" + ll
+       + "&travelmode=driving&dir_action=navigate"
+       + "&utm_source=backroads&utm_campaign=directions_request";
+}
+
+var DRIVE_STORE = "backroads.drive";
+
+function loadDrive(){
+  try { return JSON.parse(localStorage.getItem(DRIVE_STORE)) || null; }
+  catch(e){ return null; }
+}
+function saveDrive(d){
+  try {
+    if (d) localStorage.setItem(DRIVE_STORE, JSON.stringify(d));
+    else localStorage.removeItem(DRIVE_STORE);
+  } catch(e){}
+}
+
+/* Which leg you're on survives leaving for the maps app and coming back,
+   which is the whole point — you will be doing that at every junction. */
+function startDrive(){
+  var r = state.results[state.active];
+  if (!r) return;
+
+  if (state.navMode === "whole"){ navigate(); return; }
+
+  saveLap(r, true);
+  syncStar();
+  state.legs = legPoints(r);
+  saveDrive({id: lapId(r), leg: 0, total: state.legs.length});
+  renderDrive();
+  openLeg();
+}
+
+function openLeg(){
+  var d = loadDrive();
+  if (!d || !state.legs || d.leg >= state.legs.length) return;
+  window.open(navUrl(state.legs[d.leg]), "_blank");
+}
+
+function nextLeg(){
+  var d = loadDrive();
+  if (!d) return;
+  d.leg++;
+  if (d.leg >= d.total){ endDrive(); say("Lap complete."); return; }
+  saveDrive(d);
+  renderDrive();
+  openLeg();
+}
+
+function endDrive(){
+  saveDrive(null);
+  state.legs = null;
+  renderDrive();
+}
+
+function renderDrive(){
+  var bar = document.getElementById("drive");
+  var d = loadDrive();
+  var r = state.results[state.active];
+  var live = d && r && d.id === lapId(r) && state.legs;
+
+  bar.hidden = !live;
+  document.getElementById("sheet").classList.toggle("driving", !!live);
+  if (!live) return;
+
+  document.getElementById("leg-count").textContent =
+    "Leg " + (d.leg + 1) + " of " + d.total;
+
+  if (legMark){ map.removeLayer(legMark); legMark = null; }
+  var p = state.legs[d.leg];
+  legMark = L.marker([p[1], p[0]], {
+    interactive: false,
+    icon: L.divIcon({className:"", html:'<div class="leg-dot"></div>',
+                     iconSize:[22,22], iconAnchor:[11,11]})
+  }).addTo(map);
+}
+
+var legMark = null;
+
 function navigate(){
   var r = state.results[state.active];
   if (!r) return;
@@ -2606,17 +2875,21 @@ function navigate(){
     : at;
 
   var away = (r.approach || 0);
-  var slots = away > 600 ? 7 : 8;              // one slot spent reaching the lap
+  var slots = away > 600 ? 8 : 9;              // Google's documented maximum
   var way = [];
   if (away > 600) way.push(at);
-  for (var i=1;i<=slots;i++){
-    var p = r.pts[Math.floor(r.pts.length*i/(slots+1))];
+
+  var idx = shapePoints(r.pts, slots + 2);     // ends are the start/finish pin
+  for (var i=0;i<idx.length && way.length < 9; i++){
+    if (idx[i] === 0 || idx[i] === r.pts.length-1) continue;
+    var p = r.pts[idx[i]];
     way.push(p[1].toFixed(5) + "," + p[0].toFixed(5));
   }
 
   window.open("https://www.google.com/maps/dir/?api=1&origin=" + origin +
     "&destination=" + at + "&waypoints=" + encodeURIComponent(way.join("|")) +
-    "&travelmode=driving", "_blank");
+    "&travelmode=driving&dir_action=navigate" +
+    "&utm_source=backroads&utm_campaign=directions_request", "_blank");
 }
 
 /* ---------- the sheet ---------- */
@@ -2773,6 +3046,10 @@ function init(){
     if (state.results.length) say("Corner style changed. Search again to pick roads to suit.");
   });
 
+  wireChips("mode-chips", 0, function(v){
+    state.navMode = v; savePrefs(); renderMode();
+  });
+
   wireChips("net-chips", 0, function(v){
     state.showNet = (v === "on");
     drawNetwork();
@@ -2784,7 +3061,13 @@ function init(){
   applyPrefs();
 
   document.getElementById("go").addEventListener("click", search);
-  document.getElementById("nav").addEventListener("click", navigate);
+  document.getElementById("nav").addEventListener("click", startDrive);
+  document.getElementById("leg-open").addEventListener("click", openLeg);
+  document.getElementById("leg-next").addEventListener("click", nextLeg);
+  document.getElementById("leg-stop").addEventListener("click", function(){
+    endDrive(); say("Stopped.");
+  });
+  document.getElementById("gpx").addEventListener("click", exportGpx);
 
   document.getElementById("star").addEventListener("click", function(){
     var r = state.results[state.active];
@@ -2796,6 +3079,21 @@ function init(){
 
   renderPace();
   renderPlan();
+
+  /* You will leave for the maps app at every leg. Coming back should land you
+     where you left off, not at the start of the lap. */
+  var pending = loadDrive();
+  if (pending){
+    var saved = loadLaps().filter(function(e){ return e.id === pending.id; })[0];
+    if (saved){
+      openLap(saved);
+      state.legs = legPoints(state.results[0]);
+      renderDrive();
+      say("Back on leg " + (pending.leg + 1) + " of " + pending.total + ".");
+    } else {
+      saveDrive(null);
+    }
+  }
   document.getElementById("pace-reset").addEventListener("click", function(){
     if (!confirm("Forget your timings and go back to the default estimates?")) return;
     clearPace();
