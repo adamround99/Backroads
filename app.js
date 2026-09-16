@@ -279,6 +279,10 @@ function score(path){
     lap: lap,
     near: near,
     roads: path.roads || [],
+    /* Junctions worth a Google Maps pin so it can't quietly reroute — see
+       routerWouldDiverge(). Coordinates, not indices, so they survive the
+       geometry thinning that saved laps go through. */
+    riskPts: (path.risk || []).map(function(i){ return pts[i]; }),
     /* Retracing the same road is worst, but coming back along the next lane
        over is the same ground to a driver and was costing nothing at all. */
     total: st.best*1.2 + st.twisty*8 + mix.good*3 - mix.dull*4 - lap*34 - near*16
@@ -754,6 +758,37 @@ function continuity(turn, sameName){
   var c = Math.pow(Math.cos(turn * Math.PI/360), 3);
   if (!(c > 0.15)) c = 0.15;
   return c * (sameName ? 1.7 : 1);
+}
+
+/* How tempting a road class is to a real turn-by-turn router — not how fun it
+   is to drive. Used only to guess where Google's own routing might diverge
+   from ours, at Navigate time. */
+var ROUTER_RANK = {motorway:6, trunk:5, primary:4, secondary:3, tertiary:2,
+                    unclassified:1, residential:1, living_street:0, service:0, track:0};
+
+/* Would a turn-by-turn router plausibly carry on somewhere else at this
+   junction, rather than the road we actually took? True when there's an
+   option besides the one arrived on and the one taken that's a bigger class
+   and at least as straight, or the same class and noticeably straighter —
+   the two things a real router weighs most. Those junctions need their own
+   pin at Navigate time, or Google may quietly reroute onto the road it
+   prefers instead of the one the lap actually drives. */
+function routerWouldDiverge(graph, node, arriveEi, inbound, takeEi, takeOut){
+  var opts = graph.adj[node] || [];
+  var mineRank = ROUTER_RANK[graph.edges[takeEi].cls] || 0;
+  var mineTurn = turnFrom(inbound, takeOut);
+  for (var i=0;i<opts.length;i++){
+    var ei = opts[i];
+    if (ei === takeEi || ei === arriveEi) continue;
+    var e = graph.edges[ei];
+    if (e.oneway && e.from !== node) continue;      // can't be taken from here
+    var out = leaving(e, node);
+    var rank = ROUTER_RANK[e.cls] || 0;
+    var turn = turnFrom(inbound, out);
+    if (rank > mineRank && turn <= mineTurn + 20) return true;
+    if (rank === mineRank && turn + 25 < mineTurn) return true;
+  }
+  return false;
 }
 
 function nodeKey(p){ return p[0].toFixed(5) + ":" + p[1].toFixed(5); }
@@ -1270,8 +1305,8 @@ function sentence(list){
   return list.slice(0,-1).join(", ") + " and " + list[list.length-1];
 }
 
-function circuitToPath(circuit){
-  var coords = [], road = [], secs = 0, metres = 0, prevOut = null;
+function circuitToPath(circuit, graph){
+  var coords = [], road = [], secs = 0, metres = 0, prevOut = null, risk = [];
   for (var i=0;i<circuit.path.length;i++){
     var leg = circuit.path[i], pts = leg.forward ? leg.e.pts : leg.e.pts.slice().reverse();
     var at = coords.length;
@@ -1282,7 +1317,14 @@ function circuitToPath(circuit){
     secs += leg.e.secs;
     metres += leg.e.metres;
     var into = leg.forward ? leg.e.b0 : (leg.e.b1 + 180) % 360;
-    if (prevOut !== null) secs += turnSeconds(turnFrom(prevOut, into) * Math.PI/180);
+    if (prevOut !== null){
+      secs += turnSeconds(turnFrom(prevOut, into) * Math.PI/180);
+      if (graph){
+        var node = leg.forward ? leg.e.from : leg.e.to;
+        if (routerWouldDiverge(graph, node, circuit.path[i-1].ei, prevOut, leg.ei, into))
+          risk.push(at ? at-1 : 0);
+      }
+    }
     prevOut = leg.forward ? leg.e.b1 : (leg.e.b0 + 180) % 360;
   }
   // Closing the loop is a turn too.
@@ -1301,7 +1343,7 @@ function circuitToPath(circuit){
               .sort(function(a,b){ return b[1] - a[1]; });
 
   return {points:{coordinates:coords}, distance:metres, time:secs*1000,
-          roads:roads, details:{road_class:road}};
+          roads:roads, details:{road_class:road}, risk:risk};
 }
 
 function nearestNode(graph, lng, lat){
@@ -1355,7 +1397,7 @@ function makeSearch(graph, start, targetS, reachM, tries){
     if (seen[ids]) return;
     seen[ids] = 1;
 
-    var path = circuitToPath(c);
+    var path = circuitToPath(c, graph);
     var secs = (path.time/1000) * paceFactor();
     var r = score(path);
     r.approach = job.from.away;
@@ -1611,7 +1653,7 @@ function escapeText(t){
 function applyPrefs(){
   var p = loadPrefs();
   if (!p) return;
-  if (p.mins) state.mins = Math.min(p.mins, 90);
+  if (p.mins) state.mins = Math.min(p.mins, 60);
   if (typeof p.reach === "number") state.reach = Math.min(p.reach, 10);
   if (p.style) state.style = p.style;
 
@@ -1630,8 +1672,8 @@ function applyPrefs(){
 /* "1h" is right on a result card next to a number. On the landing screen it's
    a sentence, and sentences say "an hour". */
 function spoken(mins){
-  var words = {30:"half an hour", 45:"three quarters of an hour", 60:"an hour",
-               90:"an hour and a half", 120:"two hours"};
+  var words = {15:"a quarter of an hour", 30:"half an hour",
+               45:"three quarters of an hour", 60:"an hour"};
   if (words[mins]) return words[mins];
   if (mins < 60) return mins + " minutes";
   var h = Math.floor(mins/60), m = mins % 60;
@@ -1921,7 +1963,8 @@ function saveLap(r, driven){
     }),
     approach: r.approach || 0,
     saved: Date.now(), driven: driven ? Date.now() : null, fav: false,
-    pts: thin(r.pts, 25)
+    pts: thin(r.pts, 25),
+    riskPts: (r.riskPts || []).map(function(p){ return [+p[0].toFixed(5), +p[1].toFixed(5)]; })
   });
   if (!writeLaps(list)) say("No room left to save laps. Remove a few first.", true);
   renderSaved();
@@ -2099,7 +2142,8 @@ function openLap(e){
   state.results = [{
     pts: e.pts, km: e.km, mins: e.mins, best: e.best, twisty: e.twisty,
     lap: e.lap, near: e.near, approach: e.approach, total: 0,
-    via: e.via || "", viaPlaces: e.viaPlaces || [], roads: e.roads || []
+    via: e.via || "", viaPlaces: e.viaPlaces || [], roads: e.roads || [],
+    riskPts: e.riskPts || []
   }];
   renderTabs();
   show(0);
@@ -2246,17 +2290,29 @@ function navigate(){
     : at;
 
   var away = (r.approach || 0);
-  var slots = away > 600 ? 8 : 9;              // Google's documented maximum
   var way = [];
-  if (away > 600) way.push(at);
+  if (away > 600) way.push(at);            // Google's documented maximum is 9
 
-  var idx = shapePoints(r.pts, slots + 2);     // ends are the start/finish pin
-  var onRoute = junctionIndex(r.pts);
-  var span = Math.max(8, Math.round(r.pts.length / 60));   // how far a pin may slide
-  for (var i=0;i<idx.length && way.length < 9; i++){
-    if (idx[i] === 0 || idx[i] === r.pts.length-1) continue;
-    var p = snapAlongRoute(r.pts, idx[i], onRoute, span);
-    way.push(p[1].toFixed(6) + "," + p[0].toFixed(6));
+  /* Junctions the search itself flagged as places a turn-by-turn router would
+     plausibly take a different road — these earn a pin before pure shape
+     does, because missing one risks Google quietly rerouting rather than
+     just drawing the loop a bit rounder. They're already exact junction
+     coordinates (see routerWouldDiverge), so unlike shapePoints() picks they
+     need no snapping. */
+  var ls = 111320 * Math.cos(lapStart[1] * Math.PI/180);
+  var placed = (r.riskPts || []).slice(0, Math.max(0, 9 - way.length));
+  placed.forEach(function(p){ way.push(p[1].toFixed(6) + "," + p[0].toFixed(6)); });
+
+  if (way.length < 9){
+    var idx = shapePoints(r.pts, (9 - way.length) + 2);   // ends are the start/finish pin
+    var onRoute = junctionIndex(r.pts);
+    var span = Math.max(8, Math.round(r.pts.length / 60));   // how far a pin may slide
+    for (var i=0;i<idx.length && way.length < 9; i++){
+      if (idx[i] === 0 || idx[i] === r.pts.length-1) continue;
+      var p = snapAlongRoute(r.pts, idx[i], onRoute, span);
+      if (placed.some(function(q){ return metresBetween(p, q, ls) < 250; })) continue;
+      way.push(p[1].toFixed(6) + "," + p[0].toFixed(6));
+    }
   }
 
   window.open("https://www.google.com/maps/dir/?api=1&origin=" + origin +

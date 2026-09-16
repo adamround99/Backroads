@@ -67,6 +67,20 @@ re-downloading.
 **Reusing a road costs 25x** in `wayBack`. At 9x it still retraced whenever the
 alternative was much longer, producing out-and-back spurs.
 
+**Navigate pins junctions Google might reroute at, not just corners.** Real
+driving showed Google Maps' multi-stop nav requires tapping "Continue" at
+every waypoint, and there's no URL-scheme parameter to make one a silent
+via-point — so waypoint count is a hard cost, not just a shape-fidelity knob.
+`routerWouldDiverge` flags junctions along the route where a bigger-or-
+straighter alternative exists besides the one arrived on and the one taken —
+places a real router would plausibly pick differently — computed once in
+`circuitToPath` while the graph is still in hand, stored as `riskPts`
+(coordinates, not indices, so they survive save-lap thinning). `navigate()`
+spends waypoints on those first and fills any left with `shapePoints`'
+geometric picks. Still no way to reduce the *tap count* itself — the fix is
+spending the same ~9 pins on the junctions that matter instead of on pure
+shape.
+
 ## Things that bit us — don't undo these
 
 **Waypoints must sit on junctions the lap actually passes.** Google resolves a
