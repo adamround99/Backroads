@@ -1033,6 +1033,33 @@ function components(graph){
   return {label:label, sizes:sizes};
 }
 
+/* How far by road, not as the crow flies — a river or a main road can make
+   the beeline to a start badly wrong. One Dijkstra from where the user
+   actually is gives every candidate's real driving distance at once, which
+   is far cheaper than a separate shortest path per candidate. Plain metres
+   as the edge weight, not wayBack's fun/quality cost: this is answering
+   "how far is the drive out", not building a lap. */
+function roadDistances(graph, fromKey){
+  var dist = {}, done = {}, heap = new Heap();
+  dist[fromKey] = 0; heap.push(0, fromKey);
+  while (heap.a.length){
+    var top = heap.pop(), d = top[0], node = top[1];
+    if (done[node]) continue;
+    done[node] = 1;
+    var opts = graph.adj[node] || [];
+    for (var i=0;i<opts.length;i++){
+      var e = graph.edges[opts[i]];
+      if (e.oneway && e.from !== node) continue;
+      var other = e.from === node ? e.to : e.from;
+      var nd = d + e.metres;
+      if (dist[other] === undefined || nd < dist[other]){
+        dist[other] = nd; heap.push(nd, other);
+      }
+    }
+  }
+  return dist;
+}
+
 /* Candidate places to begin a lap. The lap doesn't have to start at the
    user's door — driving out to a better bit of country is normal — so this
    returns a spread of junctions across the area, favouring ones that touch
@@ -1045,10 +1072,15 @@ function pickStarts(graph, lng, lat, reachM, count){
   var ls = graph.latScale;
   var me = [lng, lat];
 
+  // Falls back to the straight line only where road distance can't be had —
+  // an unreachable (disconnected) node, or no node in the graph at all.
+  var nearest = nearestNode(graph, lng, lat);
+  var roadDist = nearest ? roadDistances(graph, nearest) : {};
+
   var pool = [];
   for (k in graph.nodes){
     if (comp.sizes[comp.label[k]] < floor) continue;
-    var away = metresBetween(graph.nodes[k], me, ls);
+    var away = roadDist[k] !== undefined ? roadDist[k] : metresBetween(graph.nodes[k], me, ls);
     if (away > reachM) continue;
     var opts = graph.adj[k] || [], fun = 0;
     for (i=0;i<opts.length;i++) if (graph.edges[opts[i]].fun > fun) fun = graph.edges[opts[i]].fun;
@@ -1066,7 +1098,7 @@ function pickStarts(graph, lng, lat, reachM, count){
     var best = null, bestD = Infinity;
     for (k in graph.nodes){
       if (comp.sizes[comp.label[k]] < floor) continue;
-      var d = metresBetween(graph.nodes[k], me, ls);
+      var d = roadDist[k] !== undefined ? roadDist[k] : metresBetween(graph.nodes[k], me, ls);
       if (d < bestD){ bestD = d; best = k; }
     }
     return {starts: best ? [{key:best, away:bestD}] : [], biggest:biggest, parts:comp.sizes.length};

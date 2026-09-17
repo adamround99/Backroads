@@ -173,6 +173,16 @@ re-downloading.
 **Reusing a road costs 25x** in `wayBack`. At 9x it still retraced whenever the
 alternative was much longer, producing out-and-back spurs.
 
+**Approach distance is by road, not as the crow flies (2026-09-17).**
+`roadDistances` runs one Dijkstra from the user's nearest node (plain metres,
+respecting `oneway` — this is "how far is the drive out", not a lap, so none
+of `wayBack`'s fun/quality cost applies) and `pickStarts` reads every
+candidate's distance off that single tree instead of `metresBetween`. One
+Dijkstra for all candidates, not one shortest path each. Falls back to the
+straight line only where road distance can't be had — a disconnected node, or
+no node in the graph at all. `nearestNode` existed unused before this; this
+is what it was for.
+
 **Navigate pins junctions Google might reroute at, not just corners.** Real
 driving showed Google Maps' multi-stop nav requires tapping "Continue" at
 every waypoint, and there's no URL-scheme parameter to make one a silent
@@ -222,7 +232,6 @@ them back on a CDN.
 - Turn restrictions are ignored; a lap can require a banned turn. Rare on the
   road classes we favour, expensive to fix properly.
 - Average-speed cameras are tagged as relations in OSM and aren't fetched.
-- Approach distance to a lap start is straight-line, not road distance.
 - The pace factor is a single global multiplier. If the user is quick on open
   roads but slow in lanes, it settles between and is wrong both ways.
 

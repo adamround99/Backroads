@@ -8,7 +8,7 @@
 
    Bump VERSION to force everyone onto new code. */
 
-var VERSION = "backroads-v14";   // bumped: mood renames + scenic drive (style override)
+var VERSION = "backroads-v15";   // bumped: approach distance is now by road, not straight-line
 var SHELL   = VERSION + "-shell";
 var TILES   = VERSION + "-tiles";
 var TILE_CAP = 1200;                 // roughly 60-80 MB of retina PNGs
