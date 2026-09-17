@@ -23,19 +23,28 @@ fine wherever it serves "go for a drive" better than a forced closed circuit
 does — that's no longer a bigger call than any other search-behaviour tweak.
 
 **Built (2026-09-17): mood buttons replaced the landing "Find me a drive"
-button.** `Quick hit` / `Clear my head` / `Somewhere new` / `The good stuff`
-in `MOODS` each set duration + reach + `state.freshness` in one tap and search
-immediately — see `pickMood`. Corner style deliberately isn't part of a mood;
-it's a standing taste, not something the reason for the drive should overrule.
+button.** `Quick drive` / `Scenic drive` / `Fresh drive` / `Long drive` in
+`MOODS` each set duration + reach + `state.freshness` in one tap and search
+immediately — see `pickMood`. (Originally named for the vibe — "Quick hit",
+"Clear my head", "Somewhere new", "The good stuff" — renamed the same day to
+say plainly what each does; `clear` and `best` were also folded into one
+`long`, since they'd differed only in reach.)
+
+Corner style deliberately isn't part of most moods — it's a standing taste,
+not something the reason for the drive should overrule — **except `scenic`**,
+which sets `style:"flowing"` in its `MOODS` entry because asking for scenic
+roads *is* asking for flowing over technical. `pickMood` resolves style fresh
+from the saved preference on every tap, then lets a mood override it just for
+that search: `savePrefs()` runs *before* the override is applied, so a scenic
+drive never quietly becomes the new everyday taste, and tapping any other
+mood afterward can't inherit scenic's leftover override either.
 
 Each mood button carries a one-line subtitle (`<i>` under `<b>`, same pattern
 as the stat tiles) naming what it actually sets — plain duration/reach/
-freshness in words, not just a vibe. It's hardcoded text in index.html, not
-generated from `MOODS`, so **if the preset values in `MOODS` change, the
+freshness/style in words, not just a vibe. It's hardcoded text in index.html,
+not generated from `MOODS`, so **if the preset values in `MOODS` change, the
 subtitle text needs updating by hand to match** — same duplication the
-mins/reach chips already accept. Worth noting: `clear` and `best` differ only
-in reach (5 vs 10) and freshness's absence either way — the subtitles say so
-honestly rather than papering over how similar those two currently are.
+mins/reach chips already accept.
 
 `state.freshness` drives `drivenCells` — a "somewhere new" grid built from
 points in laps `driven` in the last `FRESH_DAYS` (60), gridded the same way

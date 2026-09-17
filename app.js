@@ -1721,23 +1721,34 @@ function applyPrefs(){
 
 /* Moods are the landing action now — see CLAUDE.md's "Purpose, reframed".
    Each is a one-tap preset across duration, reach and whether to steer away
-   from recently-driven road. Corner style is deliberately not part of a mood:
-   that's a standing taste, not something the reason for the drive should
-   overrule. */
+   from recently-driven road. Corner style is deliberately not part of most
+   moods — it's a standing taste, not something the reason for the drive
+   should overrule — except "scenic", where asking for scenic roads *is*
+   asking for flowing over technical, so that one search borrows the style
+   chip without becoming your new standing preference (see pickMood). */
 var MOODS = {
-  quick: {mins:15, reach:0,  fresh:false},   // a spare 20 minutes, not looking for much
-  clear: {mins:60, reach:5,  fresh:false},   // decompressing — familiar roads are fine
-  fresh: {mins:45, reach:10, fresh:true},    // the point is not driving what you already have
-  best:  {mins:60, reach:10, fresh:false}    // deliberately hand back the known favourite
+  quick:  {mins:15, reach:0,  fresh:false},                        // a spare 20 minutes, not looking for much
+  scenic: {mins:30, reach:5,  fresh:false, style:"flowing"},       // the point is the road, not the pace
+  fresh:  {mins:45, reach:10, fresh:true},                         // the point is not driving what you already have
+  long:   {mins:60, reach:10, fresh:false}                         // deliberately hand back the known favourite
 };
 
 function pickMood(name){
   var m = MOODS[name];
   if (!m) return;
   state.mins = m.mins; state.reach = m.reach; state.freshness = m.fresh;
-  savePrefs();
+  savePrefs();                       // persists mins/reach/freshness as the new defaults
   markChip("mins-chips", state.mins);
   markChip("reach-chips", state.reach);
+
+  /* Style resolves fresh from the saved preference every time, then a mood
+     can override it for just this search — so a scenic drive never quietly
+     becomes your new everyday taste, and picking any other mood afterward
+     can't inherit scenic's leftover override either. */
+  var saved = loadPrefs();
+  state.style = m.style || (saved && saved.style) || "tight";
+  markChip("style-chips", state.style);
+
   search();
 }
 
