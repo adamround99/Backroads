@@ -102,6 +102,18 @@ tabs used. Deliberately session-only, not persisted to `localStorage` —
 favouriting stays the one durable way to keep a lap, this is just a shorter
 path back to one you haven't decided about yet.
 
+**Saved laps got their own tab (2026-09-18).** Used to be a `<details>`
+disclosure collapsed at the bottom of Options — easy to forget it existed,
+which was the actual complaint. The two-way `showOptions(bool)` toggle is
+gone; `showPane("route"|"options"|"saved")` and `activePane` generalise it,
+looping over a `PANES` array rather than hand-listing three states, so a
+fourth pane later is one array entry, not a rewritten function. The CSS
+mirrors this: rules that used to say "hide on options" now mostly say "show
+only on route" or "hide unless route" (e.g. `#sheet:not(.on-route) #nav`),
+so they cover saved for free instead of needing a third clause bolted on.
+`#saved-list` and `#saved-count` kept their ids and just moved house —
+`renderSaved()` didn't need to change at all.
+
 **Weather (2026-09-17) is a nudge, not a search input.** `fetchWeather` calls
 Open-Meteo (free, keyless — matches the no-account/no-server approach
 everywhere else) whenever `setStart` runs, and shows a plain "9°C, clear —

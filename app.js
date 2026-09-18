@@ -2003,7 +2003,7 @@ function show(i, keepView){
   renderWhy(r);
   renderHistory();
   syncStar();
-  if (optionsOpen) showOptions(false);
+  if (activePane !== "route") showPane("route");
 }
 
 /* ---------- saved laps ---------- */
@@ -2507,25 +2507,25 @@ function navigate(){
 
 /* ---------- the sheet ---------- */
 
-/* Two views in one panel: the route, or the options. They swap rather than
-   stack, so the options are always one tap away even with a route on screen,
-   and neither view is tall enough to need scrolling. */
-var optionsOpen = false;
+/* Three views in one panel, swapping rather than stacking, so each is one
+   tap away without ever hiding what's currently on screen behind another
+   verb. Was a two-way toggle (route/options) before Saved got its own tab —
+   generalised to a name rather than a boolean so a third view didn't mean a
+   second parallel on/off flag drifting out of sync with the first. */
+var activePane = "route";   // "route" | "options" | "saved"
+var PANES = ["route", "options", "saved"];
 
-function showOptions(on){
-  optionsOpen = on;
-  document.getElementById("pane-route").hidden = on;
-  document.getElementById("pane-options").hidden = !on;
-  document.getElementById("saved-box").hidden = !on;
-  var rt = document.getElementById("tab-route");
-  var op = document.getElementById("tab-options");
-  rt.className = on ? "" : "on";
-  op.className = on ? "on" : "";
-  rt.setAttribute("aria-selected", on ? "false" : "true");
-  op.setAttribute("aria-selected", on ? "true" : "false");
+function showPane(name){
+  activePane = name;
+  PANES.forEach(function(p){
+    document.getElementById("pane-" + p).hidden = p !== name;
+    var tab = document.getElementById("tab-" + p);
+    var on = p === name;
+    tab.className = on ? "on" : "";
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+  });
   var sheet = document.getElementById("sheet");
-  sheet.classList.toggle("on-options", on);
-  sheet.classList.toggle("on-route", !on);
+  PANES.forEach(function(p){ sheet.classList.toggle("on-" + p, p === name); });
   setTimeout(function(){ if (map) map.invalidateSize(); reframe(); }, 30);
 }
 
@@ -2562,10 +2562,13 @@ function reframe(){
 
 function wireSheet(){
   document.getElementById("tab-route").addEventListener("click", function(){
-    showOptions(false);
+    showPane("route");
   });
   document.getElementById("tab-options").addEventListener("click", function(){
-    showOptions(true);
+    showPane("options");
+  });
+  document.getElementById("tab-saved").addEventListener("click", function(){
+    showPane("saved");
   });
 
   var settle;
@@ -2722,7 +2725,7 @@ function init(){
 
   renderSaved();
   wireSheet();
-  showOptions(false);
+  showPane("route");
   setTimeout(function(){ map.invalidateSize(); }, 80);
 
   if (navigator.geolocation){

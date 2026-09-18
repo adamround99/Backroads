@@ -129,9 +129,10 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
   max-height:70vh;overflow-y:auto;
 }
 
-/* Two views of equal standing, so the control shows both rather than hiding
-   one behind a verb. The track sits a step darker than the sheet so the
-   selected segment reads as lifted out of it. */
+/* Views of equal standing, so the control shows all of them rather than
+   hiding any behind a verb — saved laps used to be a collapsed disclosure
+   buried at the bottom of Options, easy to forget existed. The track sits a
+   step darker than the sheet so the selected segment reads as lifted out of it. */
 #switch{
   display:flex;gap:2px;margin:10px 0 14px;padding:3px;
   background:var(--bg);border-radius:var(--pill);
@@ -143,6 +144,7 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
   transition:background .18s ease,color .18s ease;
 }
 #switch button.on{background:var(--raised);color:var(--ink)}
+#switch #saved-count{color:inherit;opacity:.7}
 
 /* ---------- the numbers ---------- */
 .readout{display:flex;align-items:baseline;gap:11px}
@@ -215,15 +217,17 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
    #go moves entirely into Options, for re-searching after changing your mind.
    #remood is the way back to the mood grid without losing the lap on screen —
    it stays visible the whole time you have a lap, unlike nav/star which step
-   aside while the moods are showing. */
-#sheet.on-route #go{display:none}
-#sheet.on-options #nav,
-#sheet.on-options #star{display:none}
+   aside while the moods are showing. The Saved tab is a plain list — none of
+   the action row belongs there. */
+#sheet:not(.on-options) #go{display:none}
+#sheet:not(.on-route) #nav,
+#sheet:not(.on-route) #star,
 #sheet.on-route:not(.has-route) #nav,
 #sheet.on-route:not(.has-route) #star,
 #sheet.on-route.remood #nav,
 #sheet.on-route.remood #star{display:none}
-#sheet.on-route:not(.has-route) #actions{display:none}
+#sheet.on-route:not(.has-route) #actions,
+#sheet.on-saved #actions{display:none}
 
 #remood{display:none;flex:1}
 #sheet.on-route.has-route #remood{display:block}
@@ -254,17 +258,7 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
 .chips .unit{flex:0 0 auto;font-size:12.5px;color:var(--muted);padding-left:3px}
 
 /* ---------- saved ---------- */
-details{margin:6px 0 0;border-top:1px solid var(--line);padding-top:14px}
-summary{
-  font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--muted);cursor:pointer;list-style:none;
-}
-summary::-webkit-details-marker{display:none}
-summary::before{content:"+ "}
-details[open] summary::before{content:"\2212 "}
-
-#saved-count{color:var(--muted)}
-#saved-list{margin-top:8px;max-height:210px;overflow-y:auto}
+#saved-list{max-height:50vh;overflow-y:auto}
 .lap{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)}
 .lap:last-child{border-bottom:0}
 .lap-open{
@@ -388,6 +382,8 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
             aria-controls="pane-route" class="on">Route</button>
     <button id="tab-options" type="button" role="tab" aria-selected="false"
             aria-controls="pane-options">Options</button>
+    <button id="tab-saved" type="button" role="tab" aria-selected="false"
+            aria-controls="pane-saved">Saved <span id="saved-count"></span></button>
   </div>
 
   <div id="pane-route" role="tabpanel" aria-labelledby="tab-route">
@@ -444,6 +440,9 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 
   </div>
 
+  <div id="pane-saved" role="tabpanel" aria-labelledby="tab-saved" hidden>
+    <div id="saved-list"></div>
+  </div>
 
   <div id="calib-slot"></div>
 
@@ -462,11 +461,6 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z"/></svg>
     </button>
   </div>
-
-  <details id="saved-box" hidden>
-    <summary>Saved laps <span id="saved-count"></span></summary>
-    <div id="saved-list"></div>
-  </details>
 
   <div id="msg"></div>
 </div>
