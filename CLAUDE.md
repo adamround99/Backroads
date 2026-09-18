@@ -123,6 +123,18 @@ screen — so floating it below a *different* lap's stats read as if it were
 asking about that one. It only ever made sense grouped with the list it's
 actually about.
 
+**A lap's name is a title now (2026-09-18), not a line in `say()`.** It used
+to only ever surface inside the transient status message — small, muted,
+overwritten by the next thing that needed to say anything. `#lapname`
+(`.lap-title`, an `<h2>` above the distance/duration numbers) shows it
+properly, via `renderLapName(r)`. A fresh, unsaved result has no name yet
+(naming only ever happened at save time, see `pickTrackName`) — the element
+stays empty and collapses (`.lap-title:empty{display:none}`) rather than
+showing something misleading. Saving or un-favouriting the *currently
+displayed* lap sets `r.name` directly (`navigate()`, the star handler) and
+re-renders immediately, rather than waiting for the next `show()` call to
+notice.
+
 **Weather (2026-09-17) is a nudge, not a search input.** `fetchWeather` calls
 Open-Meteo (free, keyless — matches the no-account/no-server approach
 everywhere else) whenever `setStart` runs, and shows a plain "9°C, clear —

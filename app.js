@@ -1946,6 +1946,16 @@ function renderWhy(r){
   if (el) el.textContent = whyPicked(r);
 }
 
+/* Used to only ever show up as a line in the transient status message,
+   easy to miss and gone as soon as anything else needed that line. A fresh,
+   unsaved result has no name yet — nothing earns one until it's saved — so
+   this stays empty (and collapsed, see .lap-title:empty) rather than showing
+   something misleading. */
+function renderLapName(r){
+  var el = document.getElementById("lapname");
+  if (el) el.textContent = r.name || "";
+}
+
 function show(i, keepView){
   var r = state.results[i];
   if (!r) return;
@@ -2002,6 +2012,7 @@ function show(i, keepView){
   renderVia(r);
   renderWhy(r);
   renderHistory();
+  renderLapName(r);
   syncStar();
   if (activePane !== "route") showPane("route");
 }
@@ -2330,10 +2341,10 @@ function openLap(e){
     pts: e.pts, km: e.km, mins: e.mins, best: e.best, twisty: e.twisty,
     lap: e.lap, near: e.near, approach: e.approach, total: 0,
     via: e.via || "", viaPlaces: e.viaPlaces || [], roads: e.roads || [],
-    riskPts: e.riskPts || []
+    riskPts: e.riskPts || [], name: e.name
   }];
   show(0);
-  say(e.name + " — " + drivenWhen(e.driven) + ".");
+  say(drivenWhen(e.driven).replace(/^./, function(c){ return c.toUpperCase(); }) + ".");
 }
 
 function syncStar(){
@@ -2466,7 +2477,8 @@ function navigate(){
   var r = state.results[state.active];
   if (!r) return;
 
-  saveLap(r, true);
+  r.name = saveLap(r, true).name;
+  renderLapName(r);
   syncStar();
 
   var lapStart = r.pts[0];
@@ -2719,7 +2731,9 @@ function init(){
     var r = state.results[state.active];
     if (!r) return;
     var id = lapId(r);
-    if (findLap(id)) dropLap(id); else saveLap(r, false);
+    if (findLap(id)){ dropLap(id); r.name = ""; }
+    else { r.name = saveLap(r, false).name; }
+    renderLapName(r);
     syncStar();
   });
 

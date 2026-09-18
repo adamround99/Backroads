@@ -8,7 +8,7 @@
 
    Bump VERSION to force everyone onto new code. */
 
-var VERSION = "backroads-v20";   // bumped: timing prompt no longer floats over the wrong lap
+var VERSION = "backroads-v21";   // bumped: a lap's name is a proper title now
 var SHELL   = VERSION + "-shell";
 var TILES   = VERSION + "-tiles";
 var TILE_CAP = 1200;                 // roughly 60-80 MB of retina PNGs

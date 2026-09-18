@@ -147,6 +147,15 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
 #switch #saved-count{color:inherit;opacity:.7}
 
 /* ---------- the numbers ---------- */
+/* A saved lap's name used to only ever appear as a line in the transient
+   status message at the bottom — easy to miss, and gone the moment anything
+   else needed to say something. A proper title, gone (not blank/awkward)
+   for a fresh result that hasn't earned a name yet by being saved. */
+.lap-title{
+  margin:0 0 2px;font-family:"Barlow Condensed",Barlow,sans-serif;
+  font-weight:600;font-size:21px;color:var(--ink);
+}
+.lap-title:empty{display:none}
 .readout{display:flex;align-items:baseline;gap:11px}
 .dist{
   font-family:"Barlow Condensed",Barlow,sans-serif;
@@ -388,6 +397,7 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 
   <div id="pane-route" role="tabpanel" aria-labelledby="tab-route">
     <div id="readout" hidden>
+      <h2 class="lap-title" id="lapname"></h2>
       <div class="readout">
         <div class="dist" id="km">—<span>mi</span></div>
         <div class="dur" id="dur"></div>
