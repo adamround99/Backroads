@@ -114,6 +114,15 @@ so they cover saved for free instead of needing a third clause bolted on.
 `#saved-list` and `#saved-count` kept their ids and just moved house —
 `renderSaved()` didn't need to change at all.
 
+`#calib-slot` (the "how long did X actually take" nudge) moved inside the
+Saved pane the same day, found on a real drive — it used to sit outside all
+three panes so it'd show "on either tab", which before the Saved tab existed
+meant "on Route or Options". It asks about `pendingLap()` — whichever saved
+lap is driven-but-untimed, picked independently of whatever's currently on
+screen — so floating it below a *different* lap's stats read as if it were
+asking about that one. It only ever made sense grouped with the list it's
+actually about.
+
 **Weather (2026-09-17) is a nudge, not a search input.** `fetchWeather` calls
 Open-Meteo (free, keyless — matches the no-account/no-server approach
 everywhere else) whenever `setStart` runs, and shows a plain "9°C, clear —

@@ -2271,7 +2271,9 @@ function renderSaved(){
       editLap(waiting.id, function(x){ x.actual = -1; });
     });
     card.appendChild(q); card.appendChild(yes); card.appendChild(no);
-    slot.appendChild(card);   // outside the panes, so it's seen on either tab
+    slot.appendChild(card);   // lives in the Saved pane now — see CLAUDE.md, it
+                               // used to float below whatever lap happened to be
+                               // on screen, asking about an unrelated one
   }
 
   list.forEach(function(e){
