@@ -135,6 +135,21 @@ displayed* lap sets `r.name` directly (`navigate()`, the star handler) and
 re-renders immediately, rather than waiting for the next `show()` call to
 notice.
 
+**The splash dot traces the line now (2026-09-18), it used to just fade in.**
+`#splash-dot` used a fixed-position pop-in animation timed to start after the
+line was mostly drawn — visually disconnected from it. It now rides the
+identical `d=` path via `offset-path`, with the *exact* duration and easing
+`#splash-b`'s stroke-reveal uses, so the dot stays at the tip of the drawing
+line the whole way round rather than a marker appearing afterward. One SVG
+gotcha: a `<circle>`'s own `cx`/`cy` compose with `offset-path`'s translation
+rather than being replaced by it, so they're pinned to `0 0` — any other
+value drifts the dot away from the line as it travels. Reduced-motion now
+disables it the same way as the other two elements (`animation:none`, held
+at the final `offset-distance:100%`) rather than needing a separate
+mechanism, which is the reason `offset-path` was chosen over SMIL
+`<animateMotion>` — the latter isn't `animation` and that media query
+couldn't have touched it.
+
 **Weather (2026-09-17) is a nudge, not a search input.** `fetchWeather` calls
 Open-Meteo (free, keyless — matches the no-account/no-server approach
 everywhere else) whenever `setStart` runs, and shows a plain "9°C, clear —

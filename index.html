@@ -334,20 +334,34 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
   stroke-dasharray:250;stroke-dashoffset:250;
   animation:draw .95s cubic-bezier(.45,.05,.2,1) forwards;
 }
-#splash-dot{fill:var(--accent);opacity:0;animation:pop .3s ease .78s forwards}
+/* The dot used to just fade in at a fixed point once the line was mostly
+   drawn — disconnected from the line itself. offset-path puts it ON that
+   same path (the identical d= string, so it can't drift out of sync), and
+   giving it the exact duration and easing #splash-b uses for its stroke
+   reveal keeps the dot at the tip of the line the whole way round, like the
+   pen actually laying the road rather than a marker appearing after. Ends
+   at 100% distance, which for this closed path is the same point the old
+   static dot sat at — still marks where you set off once it's still. */
+#splash-dot{
+  fill:var(--accent);
+  offset-path:path('M31 83 L31 17 A34 16.5 0 0 1 31 50 A40 16.5 0 0 1 31 83 Z');
+  offset-distance:0%;
+  animation:trace .95s cubic-bezier(.45,.05,.2,1) forwards;
+}
 #splash p{
   margin:0;font-family:"Barlow Condensed",Barlow,sans-serif;
   font-weight:600;font-size:22px;letter-spacing:.20em;text-transform:uppercase;
   color:var(--muted);opacity:0;animation:fade .45s ease .6s forwards;
 }
 @keyframes draw{to{stroke-dashoffset:0}}
-@keyframes pop{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:scale(1)}}
+@keyframes trace{to{offset-distance:100%}}
 @keyframes fade{to{opacity:1}}
 
 /* Someone who's turned motion off gets the mark, not the performance. */
 @media (prefers-reduced-motion:reduce){
   #splash-b{animation:none;stroke-dashoffset:0}
-  #splash-dot,#splash p{animation:none;opacity:1}
+  #splash-dot{animation:none;offset-distance:100%}
+  #splash p{animation:none;opacity:1}
 }
 
 /* An indeterminate stripe, because the wait genuinely has no known length. */
@@ -374,11 +388,15 @@ body.offline #go::after{content:" · offline";font-weight:500;opacity:.8}
 <body>
 
 <!-- Painted before any script runs, so it covers the blank map rather than
-     appearing after it. The B is one closed path, drawn stem-first. -->
+     appearing after it. The B is one closed path, drawn stem-first. The dot
+     rides that same path via offset-path (see CSS) rather than sitting at a
+     fixed point — cx/cy stay 0,0 on purpose: a circle's own geometry composes
+     with offset-path's translation instead of being replaced by it, so any
+     other value here would drift the dot away from the line as it travels. -->
 <div id="splash">
   <svg viewBox="0 0 100 100" aria-hidden="true">
     <path id="splash-b" d="M31 83 L31 17 A34 16.5 0 0 1 31 50 A40 16.5 0 0 1 31 83 Z"/>
-    <circle id="splash-dot" cx="31" cy="83" r="4.8"/>
+    <circle id="splash-dot" cx="0" cy="0" r="4.8"/>
   </svg>
   <p>Backroads</p>
 </div>
