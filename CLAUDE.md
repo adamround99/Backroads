@@ -91,6 +91,17 @@ candidates are gone — `present()` now keeps only the top-scoring lap (see
 actually drove the score plus how many attempts it beat, since dropping the
 comparison meant losing the "why this one" signal too.
 
+**Recent-searches history (2026-09-18), not to be confused with the removed
+result tabs above.** Those compared *candidates from one search*; this is
+*results across separate searches* — re-searching (a new mood, a chip tweak)
+used to throw the previous winner away entirely, including one you liked but
+hadn't starred yet. `pushHistory()` keeps the last `HISTORY_MAX` (5) in
+`state.history`, deduped by `lapId()` so re-landing the same lap doesn't
+repeat it; `#history`/`.hist` render the same pill-row style the old result
+tabs used. Deliberately session-only, not persisted to `localStorage` —
+favouriting stays the one durable way to keep a lap, this is just a shorter
+path back to one you haven't decided about yet.
+
 **Weather (2026-09-17) is a nudge, not a search input.** `fetchWeather` calls
 Open-Meteo (free, keyless — matches the no-account/no-server approach
 everywhere else) whenever `setStart` runs, and shows a plain "9°C, clear —

@@ -8,7 +8,7 @@
 
    Bump VERSION to force everyone onto new code. */
 
-var VERSION = "backroads-v17";   // bumped: three-word lap names (character + track + corner)
+var VERSION = "backroads-v18";   // bumped: session history of the last few searches
 var SHELL   = VERSION + "-shell";
 var TILES   = VERSION + "-tiles";
 var TILE_CAP = 1200;                 // roughly 60-80 MB of retina PNGs

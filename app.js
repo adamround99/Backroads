@@ -50,7 +50,8 @@ var state = {
   graph: null,          // road network the laps are built from
   graphAt: null,        // centre and radius of the network in hand
   bounds: null,         // what the drawn route spans
-  freshness: false      // steer away from recently-driven roads (see drivenCells)
+  freshness: false,     // steer away from recently-driven roads (see drivenCells)
+  history: []           // last few searches this session — see pushHistory
 };
 
 var map, tiles, startMarker, lapMarker, routeLine, ghostLine, placeMarks = [];
@@ -1561,12 +1562,48 @@ function finish(){
   document.getElementById("moods").classList.remove("busy");
 }
 
+/* Only one search's winner is ever on screen now, but re-searching (a new
+   mood, a chip tweak) throws the previous one away entirely — including one
+   you liked but hadn't starred yet. A short session-only history (not saved,
+   not persisted; favouriting is still the durable way to keep one) lets you
+   flip back. */
+var HISTORY_MAX = 5;
+
+function pushHistory(r){
+  // Re-searching and landing the same lap again shouldn't duplicate it.
+  if (state.history[0] && lapId(state.history[0]) === lapId(r)) return;
+  state.history.unshift(r);
+  if (state.history.length > HISTORY_MAX) state.history.length = HISTORY_MAX;
+}
+
+function showHistory(i){
+  var r = state.history[i];
+  if (!r) return;
+  state.results = [r];
+  show(0);
+}
+
+function renderHistory(){
+  var box = document.getElementById("history");
+  if (!box) return;
+  box.innerHTML = "";
+  if (state.history.length < 2) return;   // nothing to flip back to yet
+  state.history.forEach(function(r, i){
+    var b = document.createElement("button");
+    b.className = "hist" + (state.results[0] === r ? " on" : "");
+    b.innerHTML = "<b>" + clock(r.mins) + "</b>" + Math.round(r.km*MI) + "mi";
+    b.addEventListener("click", function(){ showHistory(i); });
+    box.appendChild(b);
+  });
+}
+
 function present(found, note){
   if (!found.length) throw new Error(note || "Nothing came back. Try a different length or start point.");
   found.sort(function(a,b){ return b.total - a.total; });
   var best = found[0];
   best.pool = found.length;   // for renderWhy() — dropped the 5-tab compare, kept the reason
   state.results = [best];
+  pushHistory(best);
   show(0);
 }
 
@@ -1964,6 +2001,7 @@ function show(i, keepView){
   markHasRoute();
   renderVia(r);
   renderWhy(r);
+  renderHistory();
   syncStar();
   if (optionsOpen) showOptions(false);
 }
