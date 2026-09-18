@@ -8,7 +8,7 @@
 
    Bump VERSION to force everyone onto new code. */
 
-var VERSION = "backroads-v15";   // bumped: approach distance is now by road, not straight-line
+var VERSION = "backroads-v16";   // bumped: saved laps named after racetracks, not place collisions
 var SHELL   = VERSION + "-shell";
 var TILES   = VERSION + "-tiles";
 var TILE_CAP = 1200;                 // roughly 60-80 MB of retina PNGs

@@ -2076,6 +2076,25 @@ function findLap(id){
   return null;
 }
 
+/* Naming a lap after the place it passes made two different loops that both
+   clip Southam both read as "Southam loop" — impossible to tell apart in the
+   saved list, which is the one place they most need telling apart. A
+   circuit-name pool gives every save a distinct, memorable callsign instead;
+   the place is still there, just moved to the subtitle (see renderSaved). */
+var TRACK_NAMES = ["Silverstone","Brands Hatch","Donington","Goodwood","Oulton Park",
+  "Snetterton","Cadwell Park","Thruxton","Knockhill","Croft","Anglesey","Rockingham",
+  "Monza","Spa","Nürburgring","Suzuka","Laguna Seca","Imola","Monaco","Le Mans",
+  "Zandvoort","Interlagos","Bathurst","Mugello","Hockenheim","Estoril","Paul Ricard",
+  "Watkins Glen","Sepang","Fuji","Assen","Jerez"];
+
+function pickTrackName(){
+  var used = {};
+  loadLaps().forEach(function(e){ used[e.name] = 1; });
+  var free = TRACK_NAMES.filter(function(n){ return !used[n]; });
+  var pool = free.length ? free : TRACK_NAMES;   // list exhausted — repeats are fine
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 function saveLap(r, driven){
   var list = loadLaps(), id = lapId(r), i;
   for (i=0;i<list.length;i++){
@@ -2083,9 +2102,11 @@ function saveLap(r, driven){
     if (driven) list[i].driven = Date.now();
     writeLaps(list); renderSaved(); return list[i];
   }
+  describe(r);
   list.push({
     id: id,
-    name: (describe(r), r.anchor ? r.anchor + " loop" : Math.round(r.km*MI) + " mile lap"),
+    name: pickTrackName(),
+    anchor: r.anchor || "",
     km: r.km, mins: r.mins, rawMins: r.rawMins || r.mins, best: r.best, twisty: r.twisty, lap: r.lap, near: r.near,
     via: describe(r), roads: (r.roads || []).slice(0,3),
     viaPlaces: (r.viaPlaces || []).map(function(p){
@@ -2208,6 +2229,7 @@ function renderSaved(){
     open.innerHTML = '<span class="lap-name"></span><span class="lap-sub"></span>';
     open.querySelector(".lap-name").textContent = e.name;
     open.querySelector(".lap-sub").textContent =
+      (e.anchor ? "Near " + e.anchor + " · " : "") +
       (e.best*MI).toFixed(1) + " mi best · " + Math.round(e.twisty*100) + "% cornering · " +
       (e.actual > 0
         ? "took " + clock(e.actual) + ", est " + clock(e.rawMins || e.mins)
