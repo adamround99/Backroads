@@ -60,18 +60,27 @@ presets them and searches; tweaking a chip afterward and hitting `#go` (now
 inside Options only) re-searches with whatever's currently set, freshness
 included, until a different mood is tapped.
 
-**Saved laps are named after a racetrack, not the place they pass (2026-09-18
-— README still says "Southam loop", now stale).** Two different loops that
-both clip the same town used to both read as "Southam loop" in the saved
-list — impossible to tell apart in the one place they most needed telling
-apart. `pickTrackName()` hands out a name from `TRACK_NAMES` (real circuits —
-Silverstone, Spa, Nürburgring and the like), skipping any currently in use by
-another saved lap, falling back to repeats once the pool of ~32 is exhausted.
-The place isn't gone, just moved: `saveLap` now stores `anchor` (the biggest
+**Saved laps are named character + track + corner type, not the place they
+pass (2026-09-18 — README still says "Southam loop", now stale).** Two
+different loops that both clip the same town used to both read as "Southam
+loop" in the saved list — impossible to tell apart in the one place they most
+needed telling apart. `pickTrackName()` combines three independent word
+lists — `TRACK_CHARACTER` ("Flowing", "Technical"...), `TRACK_NAMES` (real
+circuits — Silverstone, Spa, Nürburgring...), `TRACK_FEATURES` ("Hairpin",
+"Chicane"...) — for 2560 combinations, the what3words idea (a few short word
+lists multiplied together beats one long one) minus what3words' actual
+choice of meaningless words: these stay in the app's own driving vocabulary
+on purpose, since evocative is upside here rather than a risk. Skips any
+combination currently in use by another saved lap; falls back to a repeat
+only if 40 tries all collide, which at this namespace against a saved list of
+a few dozen won't happen in practice.
+
+The place isn't gone, just moved: `saveLap` stores `anchor` (the biggest
 place the lap passes, from `describe(r)`/`anchorPlace`) separately from
 `name`, and `renderSaved` prepends "Near Southam ·" to the row's subtitle.
 Renaming (already existed, the ✎ button) still works exactly as before — the
-track name is just a better starting point than the old scheme, not a rule.
+generated name is just a better starting point than the old scheme, not a
+rule.
 
 Once a lap exists, "Change mood" (`#remood`) sits beside Navigate/Star and
 stays there — tapping it swaps the mood grid back in (with a "Back to this

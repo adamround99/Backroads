@@ -2078,21 +2078,37 @@ function findLap(id){
 
 /* Naming a lap after the place it passes made two different loops that both
    clip Southam both read as "Southam loop" — impossible to tell apart in the
-   saved list, which is the one place they most need telling apart. A
-   circuit-name pool gives every save a distinct, memorable callsign instead;
-   the place is still there, just moved to the subtitle (see renderSaved). */
+   saved list, which is the one place they most need telling apart. See
+   pickTrackName() below for what replaced it. The place itself is still
+   there, just moved to the subtitle (see renderSaved). */
 var TRACK_NAMES = ["Silverstone","Brands Hatch","Donington","Goodwood","Oulton Park",
   "Snetterton","Cadwell Park","Thruxton","Knockhill","Croft","Anglesey","Rockingham",
   "Monza","Spa","Nürburgring","Suzuka","Laguna Seca","Imola","Monaco","Le Mans",
   "Zandvoort","Interlagos","Bathurst","Mugello","Hockenheim","Estoril","Paul Ricard",
   "Watkins Glen","Sepang","Fuji","Assen","Jerez"];
+var TRACK_FEATURES = ["Hairpin","Chicane","Esses","Sweeper","Switchback",
+  "Kink","Bend","Loop","Straight","Curve"];
+var TRACK_CHARACTER = ["Flowing","Technical","Quick","Twisty","Tight",
+  "Smooth","Fast","Wild"];
 
+/* Three independent word slots, the way what3words gets a huge namespace
+   from three short ones — except unlike what3words the meaninglessness
+   isn't the point, so these stay inside the app's own driving vocabulary
+   (character + track + corner type) rather than arbitrary unrelated words.
+   8 x 32 x 10 = 2560 combinations. */
 function pickTrackName(){
-  var used = {};
+  var used = {}, name, tries;
   loadLaps().forEach(function(e){ used[e.name] = 1; });
-  var free = TRACK_NAMES.filter(function(n){ return !used[n]; });
-  var pool = free.length ? free : TRACK_NAMES;   // list exhausted — repeats are fine
-  return pool[Math.floor(Math.random() * pool.length)];
+  // Against a saved list of at most a few dozen, a handful of tries is
+  // enough that a genuine collision is vanishingly unlikely, and one is
+  // harmless if it happens anyway.
+  for (tries=0; tries<40; tries++){
+    name = TRACK_CHARACTER[Math.floor(Math.random()*TRACK_CHARACTER.length)] + " " +
+           TRACK_NAMES[Math.floor(Math.random()*TRACK_NAMES.length)] + " " +
+           TRACK_FEATURES[Math.floor(Math.random()*TRACK_FEATURES.length)];
+    if (!used[name]) break;
+  }
+  return name;
 }
 
 function saveLap(r, driven){
