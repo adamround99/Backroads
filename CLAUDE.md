@@ -150,6 +150,15 @@ mechanism, which is the reason `offset-path` was chosen over SMIL
 `<animateMotion>` — the latter isn't `animation` and that media query
 couldn't have touched it.
 
+Draw/trace duration is 1.5s, not the .95s it launched with the same day —
+felt rushed once the dot actually had somewhere to travel to, rather than
+just popping in. `#splash-b` and `#splash-dot` must stay the same duration as
+each other or the dot drifts off the tip of the line; the text fade (`.7s`
+starting at `.95s`) and `wireSplash`'s hold (1700ms, in app.js) were both
+scaled up to match rather than left at their old values, which would have
+cut the animation off before it finished or shown the text too early
+relative to the now-slower line.
+
 **Weather (2026-09-17) is a nudge, not a search input.** `fetchWeather` calls
 Open-Meteo (free, keyless — matches the no-account/no-server approach
 everywhere else) whenever `setStart` runs, and shows a plain "9°C, clear —

@@ -2815,7 +2815,7 @@ function wireSplash(){
 
   function ready(){
     var held = Date.now() - born;
-    setTimeout(dismiss, Math.max(0, 1150 - held));   // let the B finish
+    setTimeout(dismiss, Math.max(0, 1700 - held));   // let the B finish — draw is 1.5s, text settles by 1.65s
   }
 
   if (document.readyState === "complete") ready();

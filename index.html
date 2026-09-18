@@ -332,7 +332,10 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
   fill:none;stroke:var(--route);stroke-width:10.5;
   stroke-linecap:round;stroke-linejoin:round;
   stroke-dasharray:250;stroke-dashoffset:250;
-  animation:draw .95s cubic-bezier(.45,.05,.2,1) forwards;
+  /* 1.5s, not the .95s this started at — felt rushed once the dot had
+     somewhere to actually travel to. Keep #splash-dot's duration identical
+     to this one if it ever changes again, or the two drift apart. */
+  animation:draw 1.5s cubic-bezier(.45,.05,.2,1) forwards;
 }
 /* The dot used to just fade in at a fixed point once the line was mostly
    drawn — disconnected from the line itself. offset-path puts it ON that
@@ -346,12 +349,12 @@ button:focus-visible{outline:2px solid var(--route);outline-offset:2px;border-ra
   fill:var(--accent);
   offset-path:path('M31 83 L31 17 A34 16.5 0 0 1 31 50 A40 16.5 0 0 1 31 83 Z');
   offset-distance:0%;
-  animation:trace .95s cubic-bezier(.45,.05,.2,1) forwards;
+  animation:trace 1.5s cubic-bezier(.45,.05,.2,1) forwards;
 }
 #splash p{
   margin:0;font-family:"Barlow Condensed",Barlow,sans-serif;
   font-weight:600;font-size:22px;letter-spacing:.20em;text-transform:uppercase;
-  color:var(--muted);opacity:0;animation:fade .45s ease .6s forwards;
+  color:var(--muted);opacity:0;animation:fade .7s ease .95s forwards;
 }
 @keyframes draw{to{stroke-dashoffset:0}}
 @keyframes trace{to{offset-distance:100%}}

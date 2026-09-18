@@ -8,7 +8,7 @@
 
    Bump VERSION to force everyone onto new code. */
 
-var VERSION = "backroads-v22";   // bumped: splash dot traces the line instead of popping in
+var VERSION = "backroads-v23";   // bumped: splash animation slowed down (.95s -> 1.5s)
 var SHELL   = VERSION + "-shell";
 var TILES   = VERSION + "-tiles";
 var TILE_CAP = 1200;                 // roughly 60-80 MB of retina PNGs
