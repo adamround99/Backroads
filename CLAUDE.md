@@ -202,6 +202,23 @@ still uses the original generous `PLACE_REACH`, since a place can fairly be
 "gone through" in words without earning a pin that has to look attached to
 the line.
 
+**Climb is a real stat now (2026-10-01), not dead code.** `climb()` existed
+since the scorer was written but nothing ever fed it elevation — `score()`'s
+`pts` are plain `[lon,lat]`, so `r.climb` was always 0 and nothing displayed
+it. `fetchClimb()` asks Open-Meteo's elevation endpoint (free, keyless, same
+host `fetchWeather` already uses) for a sampled subset of the route's points
+(`CLIMB_SAMPLE_MAX`, 90 — a locations list, not a shape, so a few dozen points
+round the loop is enough) and fills in a fourth stat tile, `#s-climb`. Same
+contract as weather: display only, fetched once a search settles
+(`show()`'s `!keepView` check skips it for every improving candidate during
+a live search, not just the kept one), never touches scoring or the duration
+model, says nothing if it fails or is slow. The source is Copernicus GLO-90
+(~90m posts) via Open-Meteo, not the 1m Defra/EA LiDAR a UK-only service
+could offer — fine for a stat tile, not accurate enough to feed the scorer
+without separately measuring whether climb predicts a better drive first.
+Saved laps and history don't carry `climb` — it's re-fetched fresh each time
+a lap is shown, same as every other display-only nudge here.
+
 ## Files
 
     index.html          markup and all CSS (~17KB)

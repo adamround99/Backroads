@@ -184,6 +184,10 @@ function statsFor(prep){
   return prep.stats || (prep.stats = driveStats(prep));
 }
 
+/* Total ascent from a list of [lon,lat,ele] points. score() has no elevation
+   to give this — pts there are plain [lon,lat] — so the only real caller is
+   fetchClimb(), after a search settles and Open-Meteo's elevation endpoint
+   has answered; see that comment for why it isn't computed here. */
 function climb(pts){
   var gain = 0, last = null;
   for (var i=0;i<pts.length;i++){
@@ -276,7 +280,6 @@ function score(path){
     mins: Math.round(path.time/60000 * paceFactor()),       // corrected by your drives
     twisty: st.twisty,
     best: st.best,
-    climb: climb(pts),
     good: mix.good,
     lap: lap,
     near: near,
@@ -2007,6 +2010,9 @@ function show(i, keepView){
   document.getElementById("s-twisty").textContent = Math.round(r.twisty*100) + "%";
   document.getElementById("s-back").textContent =
     Math.round(Math.min(1, Math.max(r.lap*2, r.near || 0))*100) + "%";
+  // Only once a search has settled, not on every improving candidate —
+  // see fetchClimb()'s comment for why.
+  if (!keepView) fetchClimb(r);
   document.getElementById("nav").disabled = false;
   markHasRoute();
   renderVia(r);
@@ -2665,6 +2671,57 @@ function fetchWeather(lat, lng){
     + "&timezone=auto&_h=" + hour;
   fetch(url).then(function(r){ return r.ok ? r.json() : null; }).then(function(j){
     if (j && j.current) el.textContent = weatherPhrase(j.current.weather_code, j.current.temperature_2m);
+  })["catch"](function(){ /* offline, or the service is down — say nothing */ });
+}
+
+/* ---------- climb (2026-10-01) ----------
+
+   climb() above has existed since the scorer was written, but nothing ever
+   fed it real elevation — pts are plain [lon,lat], so r.climb was always 0
+   and nothing displayed it. Open-Meteo has a free, keyless elevation
+   endpoint on the same host fetchWeather already trusts, which settles the
+   actual question (is there a source we can hit with no account and no
+   server): there is. This fills the stat in for display only, same contract
+   as weather — it never touches scoring or the duration model, and says
+   nothing if it fails or is slow.
+
+   Fetched once a search has settled (show()'s `!keepView` check), not on
+   every improving candidate during a live search — one request per lap
+   actually looked at, not one per candidate thrown away a moment later.
+   Sampled, not every one of the (often thousands of) 12m-spaced route
+   points — Open-Meteo takes a locations list, not a shape, and a few dozen
+   points along the loop is enough to total the climbs that matter.
+
+   The data behind it is Copernicus GLO-90 (~90m posts) — nowhere near the
+   1m UK LiDAR a Defra/EA-fed service could offer, which matters here: good
+   enough to answer "roughly how much did this lap climb" for a human
+   reading a stat tile, not accurate enough to feed the scorer without
+   separately measuring whether climb actually predicts a better drive. */
+
+var CLIMB_SAMPLE_MAX = 90;   // keep the request small and quick, not exhaustive
+
+function fetchClimb(r){
+  var el = document.getElementById("s-climb");
+  if (!el) return;
+  el.textContent = "—";
+
+  var pts = r.pts, n = pts.length;
+  if (n < 2) return;
+  var step = Math.max(1, Math.ceil(n / CLIMB_SAMPLE_MAX));
+  var sample = [];
+  for (var k=0; k<n; k+=step) sample.push(pts[k]);
+  if (sample[sample.length-1] !== pts[n-1]) sample.push(pts[n-1]);
+
+  var url = "https://api.open-meteo.com/v1/elevation?latitude="
+    + sample.map(function(p){ return p[1].toFixed(5); }).join(",")
+    + "&longitude=" + sample.map(function(p){ return p[0].toFixed(5); }).join(",");
+
+  fetch(url).then(function(res){ return res.ok ? res.json() : null; }).then(function(j){
+    if (!j || !j.elevation || j.elevation.length !== sample.length) return;
+    if (state.results[state.active] !== r) return;    // moved on before this landed
+    var withEle = sample.map(function(p, idx){ return [p[0], p[1], j.elevation[idx]]; });
+    r.climb = climb(withEle);
+    el.textContent = Math.round(r.climb);
   })["catch"](function(){ /* offline, or the service is down — say nothing */ });
 }
 
