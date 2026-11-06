@@ -390,6 +390,26 @@ function askOverpass(q){
   return attempt(0);
 }
 
+/* Overpass puts `null` in a way's geometry where it doesn't have that node —
+   a mirror serving a clipped extract, or a node the replica lost. Reading
+   `.lon` off it killed the whole search ("Cannot read properties of null").
+   Drop the hole and split the road there rather than joining the two sides
+   with a straight line that was never a road. A way with no gaps goes
+   through untouched. */
+function splitAtGaps(e, out){
+  var g = e.geometry || [], run = [], n;
+  function flush(){
+    if (run.length >= 2)
+      out.push(run.length === g.length ? e : {type:e.type, id:e.id, tags:e.tags, geometry:run});
+    run = [];
+  }
+  for (n=0;n<g.length;n++){
+    if (g[n] && g[n].lon !== undefined && g[n].lat !== undefined) run.push(g[n]);
+    else flush();
+  }
+  flush();
+}
+
 function fetchArea(start, radius){
   // Residential streets keep small networks joined up, but over a wide area
   // they are most of the data and none of the driving.
@@ -427,7 +447,7 @@ function fetchArea(start, radius){
       } else if (tg.amenity === "school"){
         if (lon !== undefined) schools.push([lon, lat]);
       } else if (e.type === "way" && tg.highway){
-        ways.push(e);
+        splitAtGaps(e, ways);
       }
     }
     return {ways: ways, schools: schools, cameras: cameras, places: places};

@@ -247,6 +247,16 @@ where `body.getReader` isn't there, which is also what the mocked-fetch test
 in tests/overpass-failover.js exercises). Nothing is shown during the
 server's own query time, before the first byte — only the download.
 
+**Overpass can put `null` inside a way's geometry (2026-11-06).** Seen as
+"Cannot read properties of null (reading 'lon')", thrown from `buildGraph`
+reading `g[n].lon`. Not reproducible from `openstreetmap.fr` at the default
+location (16,943 ways, zero nulls), so the source mirror/area is unconfirmed —
+the likely cause is a mirror serving a clipped extract or a replica missing a
+node. `fetchArea` now runs every way through `splitAtGaps`, which drops the
+hole and splits the road there instead of bridging it with a straight line.
+Also seen once: HTTP 200 with an XML body from the same mirror under load —
+`r.json()` throws on that, so it already falls through to the next mirror.
+
 ## Files
 
     index.html          markup and all CSS (~17KB)
