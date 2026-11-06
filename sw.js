@@ -8,7 +8,7 @@
 
    Bump VERSION to force everyone onto new code. */
 
-var VERSION = "backroads-v29";   // bumped: fewer wasted Navigate pins; "why" line shows miles, not km
+var VERSION = "backroads-v30";   // bumped: lap names no longer claim anything about the road; climb in feet
 var SHELL   = VERSION + "-shell";
 var TILES   = VERSION + "-tiles";
 var TILE_CAP = 1200;                 // roughly 60-80 MB of retina PNGs

@@ -65,7 +65,7 @@ pass (2026-09-18 — README still says "Southam loop", now stale).** Two
 different loops that both clip the same town used to both read as "Southam
 loop" in the saved list — impossible to tell apart in the one place they most
 needed telling apart. `pickTrackName()` combines three independent word
-lists — `TRACK_CHARACTER` ("Flowing", "Technical"...), `TRACK_NAMES` (real
+lists — `TRACK_CHARACTER` ("Golden", "Midnight"...), `TRACK_NAMES` (real
 circuits — Silverstone, Spa, Nürburgring...), `TRACK_FEATURES` ("Hairpin",
 "Chicane"...) — for 2560 combinations, the what3words idea (a few short word
 lists multiplied together beats one long one) minus what3words' actual
@@ -74,6 +74,12 @@ on purpose, since evocative is upside here rather than a risk. Skips any
 combination currently in use by another saved lap; falls back to a repeat
 only if 40 tries all collide, which at this namespace against a saved list of
 a few dozen won't happen in practice.
+
+**Name words must not describe the road (2026-11-06).** The names are random,
+so "Tight Watkins Glen Loop" turned up on a lap that was 13% cornering. The
+character list no longer has Flowing/Technical/Twisty/Tight (and the feature
+list swapped "Straight" for "Crest") — only neutral, evocative words. Existing
+saved laps keep whatever name they already have.
 
 The place isn't gone, just moved: `saveLap` stores `anchor` (the biggest
 place the lap passes, from `describe(r)`/`anchorPlace`) separately from
@@ -208,7 +214,9 @@ since the scorer was written but nothing ever fed it elevation — `score()`'s
 it. `fetchClimb()` asks Open-Meteo's elevation endpoint (free, keyless, same
 host `fetchWeather` already uses) for a sampled subset of the route's points
 (`CLIMB_SAMPLE_MAX`, 90 — a locations list, not a shape, so a few dozen points
-round the loop is enough) and fills in a fourth stat tile, `#s-climb`. Same
+round the loop is enough) and fills in a fourth stat tile, `#s-climb`, shown in
+feet (`FT`; `r.climb` itself stays in metres) so every number on screen is
+imperial — distances are all miles, climb is the one height. Same
 contract as weather: display only, fetched once a search settles
 (`show()`'s `!keepView` check skips it for every improving candidate during
 a live search, not just the kept one), never touches scoring or the duration

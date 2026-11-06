@@ -46,6 +46,7 @@ var MIRROR_STORE = "backroads.mirror";
 var CARTO_KEY = "cb1_3m6r_1_6a91ecb6ec4825e90b833af1";
 
 var MI = 0.621371;   // everything is measured in metres and shown in miles
+var FT = 3.28084;    // climb is the one height shown; feet, to match the miles
 
 var state = {
   start: null,          // {lat, lng}
@@ -2199,10 +2200,13 @@ var TRACK_NAMES = ["Silverstone","Brands Hatch","Donington","Goodwood","Oulton P
   "Monza","Spa","Nürburgring","Suzuka","Laguna Seca","Imola","Monaco","Le Mans",
   "Zandvoort","Interlagos","Bathurst","Mugello","Hockenheim","Estoril","Paul Ricard",
   "Watkins Glen","Sepang","Fuji","Assen","Jerez"];
+/* Names are random on purpose, so none of these words may claim anything about
+   the road: "Tight ..." landed on a lap that was 13% cornering. Flowing,
+   Technical, Twisty, Tight and Straight were all dropped for that reason. */
 var TRACK_FEATURES = ["Hairpin","Chicane","Esses","Sweeper","Switchback",
-  "Kink","Bend","Loop","Straight","Curve"];
-var TRACK_CHARACTER = ["Flowing","Technical","Quick","Twisty","Tight",
-  "Smooth","Fast","Wild"];
+  "Kink","Bend","Loop","Crest","Curve"];
+var TRACK_CHARACTER = ["Quick","Smooth","Fast","Wild",
+  "Golden","Midnight","Rapid","Lucky"];
 
 /* Three independent word slots, the way what3words gets a huge namespace
    from three short ones — except unlike what3words the meaninglessness
@@ -2799,7 +2803,7 @@ function fetchClimb(r){
     if (state.results[state.active] !== r) return;    // moved on before this landed
     var withEle = sample.map(function(p, idx){ return [p[0], p[1], j.elevation[idx]]; });
     r.climb = climb(withEle);
-    el.textContent = Math.round(r.climb);
+    el.textContent = Math.round(r.climb * FT);   // r.climb stays in metres
   })["catch"](function(){ /* offline, or the service is down — say nothing */ });
 }
 
