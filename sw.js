@@ -8,7 +8,7 @@
 
    Bump VERSION to force everyone onto new code. */
 
-var VERSION = "backroads-v25";   // bumped: Overpass mirror list replaced (two of three were dead/hanging)
+var VERSION = "backroads-v26";   // bumped: slimmer Overpass road query
 var SHELL   = VERSION + "-shell";
 var TILES   = VERSION + "-tiles";
 var TILE_CAP = 1200;                 // roughly 60-80 MB of retina PNGs

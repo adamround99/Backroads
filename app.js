@@ -387,7 +387,7 @@ function fetchArea(start, radius){
         + 'node["highway"="speed_camera"]' + at + ';'
         + 'node["place"~"^(town|village|hamlet|suburb)$"]["name"]' + at + ';'
         + ')->.extras;'
-        + '.roads out geom;'
+        + '.roads out tags geom qt;'   // no node-id list (unused), no server-side sort: ~14% smaller
         + '.extras out center;';
   return askOverpass(q).then(function(j){
     var els = j.elements || [], ways = [], schools = [], cameras = [], places = [], i;

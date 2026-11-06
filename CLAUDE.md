@@ -233,6 +233,15 @@ like 429/504. Re-test the list with a plain `fetch` from the browser console
 when this recurs — curl got a misleading 406 from overpass-api.de that a real
 browser origin didn't.
 
+Even with a healthy mirror the hour-long search is a big download: measured
+from a desktop, a 27.5km radius (60 min + 10 mi reach) is ~21MB and ~13s on
+`openstreetmap.fr`; a phone on mobile data was seen taking 75s ("Took 75.8s —
+75s reading the map"). Roads now use `out tags geom qt` (no way-node id list —
+`buildGraph` works from coordinates — and no server sort), ~14% smaller. Only
+the first search of an area pays this; the graph is then cached in IndexedDB.
+Further savings would mean a smaller radius (shorter lap or less reach), which
+is a product trade-off, not a free win.
+
 ## Files
 
     index.html          markup and all CSS (~17KB)
