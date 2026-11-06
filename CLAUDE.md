@@ -240,7 +240,12 @@ from a desktop, a 27.5km radius (60 min + 10 mi reach) is ~21MB and ~13s on
 `buildGraph` works from coordinates — and no server sort), ~14% smaller. Only
 the first search of an area pays this; the graph is then cached in IndexedDB.
 Further savings would mean a smaller radius (shorter lap or less reach), which
-is a product trade-off, not a free win.
+is a product trade-off, not a free win. The wait is no longer silent:
+`askOverpass`'s inner `readBody` streams the response and `say()`s
+"Downloading roads… 9.4 MB" as it arrives (falls back to plain `r.json()`
+where `body.getReader` isn't there, which is also what the mocked-fetch test
+in tests/overpass-failover.js exercises). Nothing is shown during the
+server's own query time, before the first byte — only the download.
 
 ## Files
 

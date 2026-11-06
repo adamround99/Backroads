@@ -320,6 +320,29 @@ function askOverpass(q){
   var order = list.concat(list);
   var lastBusy = false;
 
+  /* Overpass says nothing until the query has run, then sends the whole body
+     at once — 15-20MB for a long drive. Counting bytes as they land turns a
+     silent minute into a visible one. Plain json() where the response can't
+     be streamed. */
+  function readBody(r){
+    if (!(r.body && r.body.getReader && window.TextDecoder)) return r.json();
+    var reader = r.body.getReader(), chunks = [], got = 0, shown = 0;
+    function pump(){
+      return reader.read().then(function(s){
+        if (s.done){
+          var all = new Uint8Array(got), at = 0;
+          chunks.forEach(function(c){ all.set(c, at); at += c.length; });
+          return JSON.parse(new TextDecoder().decode(all));
+        }
+        chunks.push(s.value); got += s.value.length;
+        var now = Date.now();
+        if (now - shown > 250){ shown = now; say("Downloading roads… " + (got/1048576).toFixed(1) + " MB"); }
+        return pump();
+      });
+    }
+    return pump();
+  }
+
   function attempt(i){
     if (i >= order.length){
       throw new Error(lastBusy
@@ -348,7 +371,7 @@ function askOverpass(q){
           // 502/503 are how overpass-api.de says "all workers busy, queue full"
           if (!r.ok){ lastBusy = (r.status === 429 || r.status === 502 || r.status === 503 || r.status === 504); throw new Error("retry"); }
           try { localStorage.setItem(MIRROR_STORE, order[i]); } catch(e){}
-          return r.json();
+          return readBody(r);
         }, function(e){
           clearTimeout(timer);
           throw e;
