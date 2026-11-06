@@ -25,11 +25,19 @@ var WEIGHTS = {
    mirrors of the same database: if one is busy, the next one will do.
    Weekend mornings are peak load, which is exactly when this app gets
    opened, so the fallbacks earn their keep. */
+/* Measured 2026-11-06 from a browser: openstreetmap.fr answered the real
+   query in ~19s; overpass-api.de was 502 "at capacity"; kumi.systems accepted
+   the connection and then said nothing for 40s+ (every attempt cost a full
+   timeout, and it was listed first); osm.jp has an expired certificate, so it
+   could never have worked from a browser. The list goes stale — askOverpass
+   remembers whichever mirror last answered and tries it first, so a dead one
+   costs a single timeout once rather than on every search. */
 var OVERPASS = [
-  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.openstreetmap.fr/api/interpreter",
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.osm.jp/api/interpreter"
+  "https://overpass.kumi.systems/api/interpreter"
 ];
+var MIRROR_STORE = "backroads.mirror";
 
 /* CARTO basemap key. Since Aug 2026 keyless tiles come back stamped
    "API KEY REQUIRED". This ships to every visitor in the page source —
@@ -297,14 +305,19 @@ function score(path){
 /* ---------- finding roads worth driving ---------- */
 
 /* The whole road network inside a disc, for circuit building. */
-/* Ask Overpass, working down the mirror list. A busy server (429/504) or a
+/* Ask Overpass, working down the mirror list. A busy server (429/502/503/504) or a
    dead one is worth retrying elsewhere; a malformed query (400) is our fault
    and will fail identically everywhere, so that one gives up immediately.
    Two passes over the list, with a pause between, because "busy" is usually
    a matter of seconds. */
 function askOverpass(q){
   var body = "data=" + encodeURIComponent(q);
-  var order = OVERPASS.concat(OVERPASS);
+  var list = OVERPASS.slice();
+  try {
+    var good = list.indexOf(localStorage.getItem(MIRROR_STORE));
+    if (good > 0) list.unshift(list.splice(good, 1)[0]);   // last one that answered goes first
+  } catch(e){}
+  var order = list.concat(list);
   var lastBusy = false;
 
   function attempt(i){
@@ -332,7 +345,9 @@ function askOverpass(q){
         }).then(function(r){
           clearTimeout(timer);
           if (r.status === 400) throw new Error("stop:The road network query was rejected.");
-          if (!r.ok){ lastBusy = (r.status === 429 || r.status === 504); throw new Error("retry"); }
+          // 502/503 are how overpass-api.de says "all workers busy, queue full"
+          if (!r.ok){ lastBusy = (r.status === 429 || r.status === 502 || r.status === 503 || r.status === 504); throw new Error("retry"); }
+          try { localStorage.setItem(MIRROR_STORE, order[i]); } catch(e){}
           return r.json();
         }, function(e){
           clearTimeout(timer);

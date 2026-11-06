@@ -219,6 +219,20 @@ without separately measuring whether climb predicts a better drive first.
 Saved laps and history don't carry `climb` — it's re-fetched fresh each time
 a lap is shown, same as every other display-only nudge here.
 
+**Overpass mirrors rot — check them before blaming the code (2026-11-06).**
+"Hung on server busy" was real: of the three mirrors, `kumi.systems` accepted
+the connection and then said nothing (each attempt burned the full 40s
+timeout, and it was listed first), `osm.jp` has an expired TLS certificate so
+a browser can never reach it, and `overpass-api.de` was returning 502 "at
+capacity" (which the old code didn't even count as busy — only 429/504).
+`overpass.openstreetmap.fr` answered the real 12.5km query in ~19s, so it's
+first now. `askOverpass` also remembers the last mirror that answered
+(`backroads.mirror` in localStorage) and tries it first, so a dead mirror
+costs one timeout once instead of every search. 502/503 now count as "busy"
+like 429/504. Re-test the list with a plain `fetch` from the browser console
+when this recurs — curl got a misleading 406 from overpass-api.de that a real
+browser origin didn't.
+
 ## Files
 
     index.html          markup and all CSS (~17KB)
