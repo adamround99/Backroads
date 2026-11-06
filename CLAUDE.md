@@ -342,6 +342,15 @@ geometric picks. Still no way to reduce the *tap count* itself — the fix is
 spending the same ~9 pins on the junctions that matter instead of on pure
 shape.
 
+`pickRiskPins` (2026-11-06) stops `navigate()` spending several pins on one
+junction. Measured on two real laps: a complex junction gets flagged repeatedly
+(clusters of three flagged points 6-94m apart), and the old `slice(0, budget)`
+took them in route order — so one cluster ate 3 of 8 pins while the last cluster,
+at the end of the lap, got none. It now drops any flagged point within 250m of
+one already chosen (including the lap-start pin) and, if still over budget,
+takes an even spread rather than the first N. Freed slots go to `shapePoints`.
+Closest pair of chosen pins went from 21-32m apart to 330m+ on both test laps.
+
 ## Things that bit us — don't undo these
 
 **Waypoints must sit on junctions the lap actually passes.** Google resolves a

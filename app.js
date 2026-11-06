@@ -1990,7 +1990,7 @@ function renderVia(r){
    pick without re-litigating it. */
 function whyPicked(r){
   var bits = [];
-  if (r.best >= 3) bits.push(r.best.toFixed(1) + " miles of continuous cornering");
+  if (r.best >= 3) bits.push((r.best*MI).toFixed(1) + " miles of continuous cornering");   // r.best is km
   else if (r.twisty >= 0.55) bits.push(Math.round(r.twisty*100) + "% of it cornering");
   if (typeof r.stale === "number" && r.stale < 0.1) bits.push("roads you haven't driven recently");
   if (Math.max(r.lap*2, r.near || 0) < 0.02) bits.push("almost no doubling back");
@@ -2537,6 +2537,25 @@ function snapAlongRoute(pts, idx, onRoute, span){
   return pts[idx];
 }
 
+/* Choose which flagged junctions get a pin. A complex junction is flagged
+   several times over (measured: two clusters of three, 6-90m apart, on one
+   lap), and one pin there constrains the router as well as three would — but
+   every pin is a "Continue" tap while driving. So drop any within 250m of one
+   already chosen (or already spent, e.g. the lap-start pin), and if there are
+   still more than the budget, take an even spread. Cutting off after the first
+   N used to leave the whole back half of the lap unpinned. */
+function pickRiskPins(pts, budget, taken, ls){
+  var kept = [], all = taken.slice();
+  pts.forEach(function(p){
+    if (all.some(function(q){ return metresBetween(p, q, ls) < 250; })) return;
+    kept.push(p); all.push(p);
+  });
+  if (kept.length <= budget) return kept;
+  var out = [];
+  for (var i=0;i<budget;i++) out.push(kept[budget === 1 ? 0 : Math.round(i*(kept.length-1)/(budget-1))]);
+  return out;
+}
+
 function navigate(){
   var r = state.results[state.active];
   if (!r) return;
@@ -2562,7 +2581,8 @@ function navigate(){
      coordinates (see routerWouldDiverge), so unlike shapePoints() picks they
      need no snapping. */
   var ls = 111320 * Math.cos(lapStart[1] * Math.PI/180);
-  var placed = (r.riskPts || []).slice(0, Math.max(0, 9 - way.length));
+  var placed = pickRiskPins(r.riskPts || [], Math.max(0, 9 - way.length),
+                            away > 600 ? [lapStart] : [], ls);
   placed.forEach(function(p){ way.push(p[1].toFixed(6) + "," + p[0].toFixed(6)); });
 
   if (way.length < 9){
